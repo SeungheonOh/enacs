@@ -1,0 +1,48 @@
+[package]
+name = "enacs"
+version = "0.1.0"
+edition = "2021"
+authors = ["Enacs Contributors"]
+description = "Emacs-like editor, Not Actually Capable of Scripting"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/example/enacs"
+keywords = ["editor", "emacs", "text-editor", "terminal"]
+categories = ["command-line-utilities", "text-editors"]
+
+[dependencies]
+# Text storage
+ropey = "1.6"
+
+# Terminal frontend
+crossterm = "0.27"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Utilities
+bitflags = "2.4"
+unicode-segmentation = "1.10"
+unicode-width = "0.1"
+
+# Logging (optional, for debugging)
+log = "0.4"
+env_logger = "0.10"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bin]]
+name = "enacs"
+path = "src/main.rs"
+
+[lib]
+name = "enacs"
+path = "src/lib.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[profile.dev]
+opt-level = 1  # Slightly optimize dev builds for better editing performance
