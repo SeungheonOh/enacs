@@ -188,15 +188,15 @@ pub fn default_keymap() -> KeyMap {
         KeyEvent::new(Key::Char('/'), Modifiers::CTRL),
         "undo",
     );
-    map.bind_command(
-        KeyEvent::new(Key::Char('_'), Modifiers::CTRL),
-        "undo",
-    );
-    map.bind_command(
-        KeyEvent::new(Key::Char('?'), Modifiers::CTRL),
-        "redo",
-    );
-    map.bind_command(KeyEvent::ctrl_shift('/'), "redo");
+    // map.bind_command(
+    //     KeyEvent::new(Key::Char('_'), Modifiers::CTRL),
+    //     "undo",
+    // );
+    // map.bind_command(
+    //     KeyEvent::new(Key::Char('?'), Modifiers::CTRL),
+    //     "redo",
+    // );
+    // map.bind_command(KeyEvent::ctrl_shift('/'), "redo");
 
     map.bind_command(KeyEvent::ctrl('g'), "keyboard-quit");
     map.bind_command(KeyEvent::meta('x'), "execute-extended-command");

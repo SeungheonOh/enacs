@@ -93,6 +93,7 @@ pub struct Command {
     pub execute: CommandFn,
     pub is_kill: bool,
     pub preserves_mark: bool,
+    pub breaks_undo_coalesce: bool,
 }
 
 impl Command {
@@ -102,6 +103,7 @@ impl Command {
             execute,
             is_kill: false,
             preserves_mark: false,
+            breaks_undo_coalesce: true,
         }
     }
 
@@ -111,6 +113,7 @@ impl Command {
             execute,
             is_kill: true,
             preserves_mark: false,
+            breaks_undo_coalesce: true,
         }
     }
 
@@ -120,6 +123,7 @@ impl Command {
             execute,
             is_kill: false,
             preserves_mark: true,
+            breaks_undo_coalesce: true,
         }
     }
 
@@ -129,6 +133,17 @@ impl Command {
             execute,
             is_kill: false,
             preserves_mark: true,
+            breaks_undo_coalesce: false,
+        }
+    }
+
+    pub const fn editing(name: &'static str, execute: CommandFn) -> Self {
+        Self {
+            name,
+            execute,
+            is_kill: false,
+            preserves_mark: false,
+            breaks_undo_coalesce: false,
         }
     }
 }

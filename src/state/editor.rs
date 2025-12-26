@@ -172,23 +172,29 @@ impl EditorState {
     }
 
     fn post_command(&mut self, command_name: &'static str) {
-        if let Some(cmd) = self.command_registry.get(command_name) {
-            if !cmd.is_kill {
-                self.last_was_kill = false;
-                self.kill_ring.set_last_was_kill(false);
-            }
+        let (is_kill, preserves_mark, breaks_undo) = self
+            .command_registry
+            .get(command_name)
+            .map(|cmd| (cmd.is_kill, cmd.preserves_mark, cmd.breaks_undo_coalesce))
+            .unwrap_or((false, false, true));
 
-            if !cmd.preserves_mark {
-                if let Some(window) = self.current_window_mut() {
-                    window.cursors.deactivate_all_marks();
-                }
+        if !is_kill {
+            self.last_was_kill = false;
+            self.kill_ring.set_last_was_kill(false);
+        }
+
+        if !preserves_mark {
+            if let Some(window) = self.current_window_mut() {
+                window.cursors.deactivate_all_marks();
             }
         }
 
         self.last_command = Some(command_name);
 
-        if let Some(buffer) = self.current_buffer_mut() {
-            buffer.add_undo_boundary();
+        if breaks_undo {
+            if let Some(buffer) = self.current_buffer_mut() {
+                buffer.break_undo_coalesce();
+            }
         }
 
         self.ensure_cursor_visible();

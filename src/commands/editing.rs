@@ -247,10 +247,15 @@ pub fn keyboard_quit(state: &mut EditorState, _ctx: &CommandContext) -> CommandR
     Err(CommandError::Cancelled)
 }
 
+fn self_insert_command(_state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
+    Ok(())
+}
+
 pub fn all_commands() -> Vec<Command> {
     vec![
-        Command::new("delete-char", delete_char),
-        Command::new("delete-backward-char", delete_backward_char),
+        Command::editing("self-insert-command", self_insert_command),
+        Command::editing("delete-char", delete_char),
+        Command::editing("delete-backward-char", delete_backward_char),
         Command::new("newline", newline),
         Command::new("open-line", open_line),
         Command::new("transpose-chars", transpose_chars),
