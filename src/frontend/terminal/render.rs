@@ -29,7 +29,7 @@ pub fn render(
         queue!(stdout, MoveTo(cursor_x.min(width - 1), height - 1))?;
     } else if let Some(window) = state.windows.current() {
         if let Some(buffer) = state.buffers.get(window.buffer_id) {
-            let cursor_pos = buffer.cursors.primary.position;
+            let cursor_pos = window.cursors.primary.position;
             let pos = buffer.text.char_to_position(cursor_pos);
 
             let screen_line = pos.line.saturating_sub(window.scroll_line);
@@ -57,7 +57,7 @@ fn render_window(
         None => return Ok(()),
     };
 
-    let region = buffer.cursors.primary.region();
+    let region = window.cursors.primary.region();
 
     for row in 0..window.height {
         let line_idx = window.scroll_line + row as usize;
@@ -144,20 +144,22 @@ fn render_modeline(
     )?;
 
     let buffer = state.current_buffer();
+    let window = state.current_window();
     let buffer_name = buffer.map(|b| b.name.as_str()).unwrap_or("[No buffer]");
     let modified = buffer.map(|b| if b.modified { "**" } else { "--" }).unwrap_or("--");
     let readonly = buffer.map(|b| if b.read_only { "%%" } else { "--" }).unwrap_or("--");
 
-    let mark_indicator = buffer
-        .map(|b| if b.cursors.primary.mark_active { " Mark" } else { "" })
+    let mark_indicator = window
+        .map(|w| if w.cursors.primary.mark_active { " Mark" } else { "" })
         .unwrap_or("");
 
-    let (line, col) = buffer
-        .map(|b| {
-            let pos = b.text.char_to_position(b.cursors.primary.position);
+    let (line, col) = match (buffer, window) {
+        (Some(b), Some(w)) => {
+            let pos = b.text.char_to_position(w.cursors.primary.position);
             (pos.line + 1, pos.column + 1)
-        })
-        .unwrap_or((1, 1));
+        }
+        _ => (1, 1),
+    };
 
     let left = format!("-{}:{}- {}{} ", modified, readonly, buffer_name, mark_indicator);
     let right = format!(" L{}:C{} ", line, col);

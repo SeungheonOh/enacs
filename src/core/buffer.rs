@@ -6,7 +6,6 @@ use ropey::Rope;
 use super::cursor::CursorSet;
 use super::mark::MarkRing;
 use super::position::CharOffset;
-use super::rope_ext::RopeExt;
 use super::undo::{UndoHistory, UndoResult};
 
 static BUFFER_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -40,7 +39,6 @@ pub struct Buffer {
     pub name: String,
     pub file_path: Option<PathBuf>,
     pub text: Rope,
-    pub cursors: CursorSet,
     pub mark_ring: MarkRing,
     pub modified: bool,
     pub read_only: bool,
@@ -55,7 +53,6 @@ impl Buffer {
             name: name.into(),
             file_path: None,
             text: Rope::new(),
-            cursors: CursorSet::new(),
             mark_ring: MarkRing::default(),
             modified: false,
             read_only: false,
@@ -71,12 +68,11 @@ impl Buffer {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string_lossy().into_owned());
 
-        let mut buffer = Self {
+        let buffer = Self {
             id: BufferId::new(),
             name,
             file_path: Some(path),
             text: Rope::from_str(&content),
-            cursors: CursorSet::new(),
             mark_ring: MarkRing::default(),
             modified: false,
             read_only: false,
@@ -84,7 +80,6 @@ impl Buffer {
             undo_history: UndoHistory::default(),
         };
 
-        buffer.clamp_cursors();
         Ok(buffer)
     }
 
@@ -94,7 +89,6 @@ impl Buffer {
             name: name.into(),
             file_path: None,
             text: Rope::from_str(content.as_ref()),
-            cursors: CursorSet::new(),
             mark_ring: MarkRing::default(),
             modified: false,
             read_only: false,
@@ -127,40 +121,40 @@ impl Buffer {
         Ok(())
     }
 
-    pub fn insert_char(&mut self, c: char) {
-        self.insert_string(&c.to_string());
+    pub fn insert_char(&mut self, cursors: &mut CursorSet, c: char) {
+        self.insert_string(cursors, &c.to_string());
     }
 
-    pub fn insert_string(&mut self, s: &str) {
+    pub fn insert_string(&mut self, cursors: &mut CursorSet, s: &str) {
         if self.read_only || s.is_empty() {
             return;
         }
 
-        let positions = self.cursors.positions_descending();
+        let positions = cursors.positions_descending();
         let char_count = s.chars().count();
 
         for pos in positions {
             let char_idx = pos.0.min(self.text.len_chars());
             self.undo_history.record_insert(CharOffset(char_idx), s.to_string());
             self.text.insert(char_idx, s);
-            self.cursors.adjust_positions_after_insert(CharOffset(char_idx), char_count);
+            cursors.adjust_positions_after_insert(CharOffset(char_idx), char_count);
         }
 
-        for cursor in self.cursors.all_cursors_mut() {
+        for cursor in cursors.all_cursors_mut() {
             cursor.position = CharOffset(cursor.position.0 + char_count);
             cursor.deactivate_mark();
         }
 
         self.modified = true;
-        self.cursors.sort_and_merge();
+        cursors.sort_and_merge();
     }
 
-    pub fn delete_char_forward(&mut self) -> Option<char> {
+    pub fn delete_char_forward(&mut self, cursors: &mut CursorSet) -> Option<char> {
         if self.read_only {
             return None;
         }
 
-        let positions = self.cursors.positions_descending();
+        let positions = cursors.positions_descending();
         let mut deleted = None;
 
         for pos in positions {
@@ -170,23 +164,23 @@ impl Buffer {
                 deleted = Some(c);
                 self.undo_history.record_delete(pos, c.to_string());
                 self.text.remove(char_idx..char_idx + 1);
-                self.cursors.adjust_positions_after_delete(pos, CharOffset(pos.0 + 1));
+                cursors.adjust_positions_after_delete(pos, CharOffset(pos.0 + 1));
             }
         }
 
         if deleted.is_some() {
             self.modified = true;
         }
-        self.cursors.sort_and_merge();
+        cursors.sort_and_merge();
         deleted
     }
 
-    pub fn delete_char_backward(&mut self) -> Option<char> {
+    pub fn delete_char_backward(&mut self, cursors: &mut CursorSet) -> Option<char> {
         if self.read_only {
             return None;
         }
 
-        let positions = self.cursors.positions_descending();
+        let positions = cursors.positions_descending();
         let mut deleted = None;
 
         for pos in positions {
@@ -196,18 +190,18 @@ impl Buffer {
                 deleted = Some(c);
                 self.undo_history.record_delete(CharOffset(char_idx), c.to_string());
                 self.text.remove(char_idx..char_idx + 1);
-                self.cursors.adjust_positions_after_delete(CharOffset(char_idx), pos);
+                cursors.adjust_positions_after_delete(CharOffset(char_idx), pos);
             }
         }
 
         if deleted.is_some() {
             self.modified = true;
         }
-        self.cursors.sort_and_merge();
+        cursors.sort_and_merge();
         deleted
     }
 
-    pub fn delete_region(&mut self, start: CharOffset, end: CharOffset) -> String {
+    pub fn delete_region(&mut self, cursors: &mut CursorSet, start: CharOffset, end: CharOffset) -> String {
         if self.read_only || start >= end {
             return String::new();
         }
@@ -222,107 +216,14 @@ impl Buffer {
         let deleted: String = self.text.slice(start_idx..end_idx).to_string();
         self.undo_history.record_delete(start, deleted.clone());
         self.text.remove(start_idx..end_idx);
-        self.cursors.adjust_positions_after_delete(start, end);
+        cursors.adjust_positions_after_delete(start, end);
         self.mark_ring.adjust_after_delete(start, end);
         self.modified = true;
-        self.cursors.sort_and_merge();
+        cursors.sort_and_merge();
         deleted
     }
 
-    pub fn move_cursor_forward(&mut self, count: usize) {
-        let max = self.text.len_chars();
-        for cursor in self.cursors.all_cursors_mut() {
-            cursor.position = CharOffset((cursor.position.0 + count).min(max));
-            cursor.goal_column = None;
-        }
-    }
-
-    pub fn move_cursor_backward(&mut self, count: usize) {
-        for cursor in self.cursors.all_cursors_mut() {
-            cursor.position = CharOffset(cursor.position.0.saturating_sub(count));
-            cursor.goal_column = None;
-        }
-    }
-
-    pub fn move_cursor_to_line_start(&mut self) {
-        for cursor in self.cursors.all_cursors_mut() {
-            let pos = self.text.char_to_position(cursor.position);
-            cursor.position = self.text.line_start_char(pos.line);
-            cursor.goal_column = Some(0);
-        }
-    }
-
-    pub fn move_cursor_to_line_end(&mut self) {
-        for cursor in self.cursors.all_cursors_mut() {
-            let pos = self.text.char_to_position(cursor.position);
-            cursor.position = self.text.line_end_char(pos.line);
-            cursor.goal_column = None;
-        }
-    }
-
-    pub fn move_cursor_to_next_line(&mut self) {
-        let total_lines = self.text.total_lines();
-        for cursor in self.cursors.all_cursors_mut() {
-            let pos = self.text.char_to_position(cursor.position);
-            let goal_col = cursor.goal_column.unwrap_or(pos.column);
-
-            if pos.line + 1 < total_lines {
-                let next_line = pos.line + 1;
-                let line_len = self.text.line_len_chars(next_line);
-                let new_col = goal_col.min(line_len);
-                let line_start = self.text.line_start_char(next_line);
-                cursor.position = CharOffset(line_start.0 + new_col);
-                cursor.goal_column = Some(goal_col);
-            }
-        }
-    }
-
-    pub fn move_cursor_to_prev_line(&mut self) {
-        for cursor in self.cursors.all_cursors_mut() {
-            let pos = self.text.char_to_position(cursor.position);
-            let goal_col = cursor.goal_column.unwrap_or(pos.column);
-
-            if pos.line > 0 {
-                let prev_line = pos.line - 1;
-                let line_len = self.text.line_len_chars(prev_line);
-                let new_col = goal_col.min(line_len);
-                let line_start = self.text.line_start_char(prev_line);
-                cursor.position = CharOffset(line_start.0 + new_col);
-                cursor.goal_column = Some(goal_col);
-            }
-        }
-    }
-
-    pub fn move_cursor_to_buffer_start(&mut self) {
-        for cursor in self.cursors.all_cursors_mut() {
-            cursor.position = CharOffset(0);
-            cursor.goal_column = None;
-        }
-    }
-
-    pub fn move_cursor_to_buffer_end(&mut self) {
-        let end = self.text.len_chars();
-        for cursor in self.cursors.all_cursors_mut() {
-            cursor.position = CharOffset(end);
-            cursor.goal_column = None;
-        }
-    }
-
-    pub fn clamp_cursors(&mut self) {
-        let max = self.text.len_chars();
-        for cursor in self.cursors.all_cursors_mut() {
-            if cursor.position.0 > max {
-                cursor.position = CharOffset(max);
-            }
-            if let Some(mark) = cursor.mark {
-                if mark.0 > max {
-                    cursor.mark = Some(CharOffset(max));
-                }
-            }
-        }
-    }
-
-    pub fn undo(&mut self) -> bool {
+    pub fn undo(&mut self, cursors: &mut CursorSet) -> bool {
         self.undo_history.start_undo_sequence();
 
         match self.undo_history.undo_one() {
@@ -330,8 +231,8 @@ impl Buffer {
                 let char_idx = position.0.min(self.text.len_chars());
                 self.text.insert(char_idx, &text);
                 let len = text.chars().count();
-                self.cursors.adjust_positions_after_insert(position, len);
-                self.cursors.primary.position = CharOffset(char_idx + len);
+                cursors.adjust_positions_after_insert(position, len);
+                cursors.primary.position = CharOffset(char_idx + len);
                 self.modified = true;
                 true
             }
@@ -340,14 +241,14 @@ impl Buffer {
                 let end = (start + len).min(self.text.len_chars());
                 if start < end {
                     self.text.remove(start..end);
-                    self.cursors.adjust_positions_after_delete(position, CharOffset(end));
-                    self.cursors.primary.position = position;
+                    cursors.adjust_positions_after_delete(position, CharOffset(end));
+                    cursors.primary.position = position;
                     self.modified = true;
                 }
                 true
             }
-            UndoResult::RestoreCursors(cursors) => {
-                self.cursors = cursors;
+            UndoResult::RestoreCursors(new_cursors) => {
+                *cursors = new_cursors;
                 true
             }
             UndoResult::Nothing => false,
@@ -396,64 +297,54 @@ mod tests {
     #[test]
     fn test_buffer_insert() {
         let mut buffer = Buffer::new("test");
-        buffer.insert_string("hello");
+        let mut cursors = CursorSet::new();
+        buffer.insert_string(&mut cursors, "hello");
         assert_eq!(buffer.text.to_string(), "hello");
-        assert_eq!(buffer.cursors.primary.position, CharOffset(5));
+        assert_eq!(cursors.primary.position, CharOffset(5));
     }
 
     #[test]
     fn test_buffer_delete_forward() {
         let mut buffer = Buffer::from_string("test", "hello");
-        buffer.cursors.primary.position = CharOffset(0);
-        buffer.delete_char_forward();
+        let mut cursors = CursorSet::new();
+        cursors.primary.position = CharOffset(0);
+        buffer.delete_char_forward(&mut cursors);
         assert_eq!(buffer.text.to_string(), "ello");
     }
 
     #[test]
     fn test_buffer_delete_backward() {
         let mut buffer = Buffer::from_string("test", "hello");
-        buffer.cursors.primary.position = CharOffset(5);
-        buffer.delete_char_backward();
+        let mut cursors = CursorSet::new();
+        cursors.primary.position = CharOffset(5);
+        buffer.delete_char_backward(&mut cursors);
         assert_eq!(buffer.text.to_string(), "hell");
-        assert_eq!(buffer.cursors.primary.position, CharOffset(4));
-    }
-
-    #[test]
-    fn test_buffer_movement() {
-        let mut buffer = Buffer::from_string("test", "hello\nworld\n");
-        buffer.cursors.primary.position = CharOffset(0);
-
-        buffer.move_cursor_to_line_end();
-        assert_eq!(buffer.cursors.primary.position, CharOffset(5));
-
-        buffer.move_cursor_to_next_line();
-        assert_eq!(buffer.cursors.primary.position, CharOffset(11));
-
-        buffer.move_cursor_to_line_start();
-        assert_eq!(buffer.cursors.primary.position, CharOffset(6));
+        assert_eq!(cursors.primary.position, CharOffset(4));
     }
 
     #[test]
     fn test_buffer_undo() {
         let mut buffer = Buffer::new("test");
-        buffer.insert_string("hello");
+        let mut cursors = CursorSet::new();
+        buffer.insert_string(&mut cursors, "hello");
         buffer.add_undo_boundary();
-        buffer.insert_string(" world");
+        buffer.insert_string(&mut cursors, " world");
 
         assert_eq!(buffer.text.to_string(), "hello world");
 
-        buffer.undo();
+        buffer.undo(&mut cursors);
         assert_eq!(buffer.text.to_string(), "hello");
     }
 
     #[test]
     fn test_multi_cursor_insert() {
         let mut buffer = Buffer::from_string("test", "aa bb cc");
-        buffer.cursors.primary.position = CharOffset(0);
-        buffer.cursors.add_cursor(CharOffset(3));
-        buffer.cursors.add_cursor(CharOffset(6));
+        let mut cursors = CursorSet::new();
+        cursors.primary.position = CharOffset(0);
+        cursors.add_cursor(CharOffset(3));
+        cursors.add_cursor(CharOffset(6));
 
-        buffer.insert_string("X");
+        buffer.insert_string(&mut cursors, "X");
 
         assert_eq!(buffer.text.to_string(), "Xaa Xbb Xcc");
     }

@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::core::cursor::CursorSet;
 use crate::core::BufferId;
 
 static WINDOW_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -23,6 +24,7 @@ impl Default for WindowId {
 pub struct Window {
     pub id: WindowId,
     pub buffer_id: BufferId,
+    pub cursors: CursorSet,
     pub x: u16,
     pub y: u16,
     pub width: u16,
@@ -36,6 +38,7 @@ impl Window {
         Self {
             id: WindowId::new(),
             buffer_id,
+            cursors: CursorSet::new(),
             x: 0,
             y: 0,
             width: 80,
@@ -49,6 +52,7 @@ impl Window {
         Self {
             id: WindowId::new(),
             buffer_id,
+            cursors: CursorSet::new(),
             x,
             y,
             width,

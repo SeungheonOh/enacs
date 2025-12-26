@@ -5,23 +5,39 @@ use crate::state::EditorState;
 use super::registry::{Command, CommandContext, CommandError, CommandResult};
 
 pub fn self_insert(state: &mut EditorState, c: char) -> CommandResult {
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.read_only {
-            return Err(CommandError::ReadOnly);
-        }
-        buffer.insert_char(c);
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+        buffer.insert_char(cursors, c);
     }
     Ok(())
 }
 
 pub fn delete_char(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
     let count = ctx.repeat_count();
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.read_only {
-            return Err(CommandError::ReadOnly);
-        }
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
         for _ in 0..count {
-            buffer.delete_char_forward();
+            buffer.delete_char_forward(cursors);
         }
     }
     Ok(())
@@ -29,12 +45,20 @@ pub fn delete_char(state: &mut EditorState, ctx: &CommandContext) -> CommandResu
 
 pub fn delete_backward_char(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
     let count = ctx.repeat_count();
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.read_only {
-            return Err(CommandError::ReadOnly);
-        }
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
         for _ in 0..count {
-            buffer.delete_char_backward();
+            buffer.delete_char_backward(cursors);
         }
     }
     Ok(())
@@ -42,12 +66,20 @@ pub fn delete_backward_char(state: &mut EditorState, ctx: &CommandContext) -> Co
 
 pub fn newline(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
     let count = ctx.repeat_count();
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.read_only {
-            return Err(CommandError::ReadOnly);
-        }
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
         for _ in 0..count {
-            buffer.insert_char('\n');
+            buffer.insert_char(cursors, '\n');
         }
     }
     Ok(())
@@ -55,15 +87,25 @@ pub fn newline(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
 
 pub fn open_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
     let count = ctx.repeat_count();
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.read_only {
-            return Err(CommandError::ReadOnly);
-        }
-        let original_pos = buffer.cursors.primary.position;
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let original_pos = state.windows.current().unwrap().cursors.primary.position;
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
         for _ in 0..count {
-            buffer.insert_char('\n');
+            buffer.insert_char(cursors, '\n');
         }
-        for cursor in buffer.cursors.all_cursors_mut() {
+    }
+    if let Some(window) = state.windows.current_mut() {
+        for cursor in window.cursors.all_cursors_mut() {
             cursor.position = original_pos;
         }
     }
@@ -71,14 +113,20 @@ pub fn open_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
 }
 
 pub fn transpose_chars(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.read_only {
-            return Err(CommandError::ReadOnly);
-        }
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
 
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let pos = state.windows.current().unwrap().cursors.primary.position.0;
+
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
         let len = buffer.len_chars();
-        let pos = buffer.cursors.primary.position.0;
-
         if len < 2 {
             return Ok(());
         }
@@ -96,31 +144,39 @@ pub fn transpose_chars(state: &mut EditorState, _ctx: &CommandContext) -> Comman
 
         buffer.text.remove(first..second + 1);
         buffer.text.insert(first, &format!("{}{}", c2, c1));
-
-        buffer.cursors.primary.position = CharOffset((second + 1).min(len));
         buffer.modified = true;
+
+        if let Some(window) = state.windows.current_mut() {
+            window.cursors.primary.position = CharOffset((second + 1).min(len));
+        }
     }
     Ok(())
 }
 
 pub fn set_mark_command(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    if let Some(buffer) = state.current_buffer_mut() {
-        for cursor in buffer.cursors.all_cursors_mut() {
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    if let Some(window) = state.windows.current_mut() {
+        for cursor in window.cursors.all_cursors_mut() {
             let pos = cursor.position;
             cursor.set_mark(pos);
         }
-
-        let primary_pos = buffer.cursors.primary.position;
-        buffer.mark_ring.push(Mark::new(primary_pos));
-
-        state.message = Some("Mark set".to_string());
+        let primary_pos = window.cursors.primary.position;
+        if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+            buffer.mark_ring.push(Mark::new(primary_pos));
+        }
     }
+
+    state.message = Some("Mark set".to_string());
     Ok(())
 }
 
 pub fn exchange_point_and_mark(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    if let Some(buffer) = state.current_buffer_mut() {
-        for cursor in buffer.cursors.all_cursors_mut() {
+    if let Some(window) = state.windows.current_mut() {
+        for cursor in window.cursors.all_cursors_mut() {
             cursor.exchange_point_and_mark();
         }
     }
@@ -128,20 +184,33 @@ pub fn exchange_point_and_mark(state: &mut EditorState, _ctx: &CommandContext) -
 }
 
 pub fn mark_whole_buffer(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    if let Some(buffer) = state.current_buffer_mut() {
-        let end = CharOffset(buffer.len_chars());
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
 
-        buffer.mark_ring.push(Mark::new(buffer.cursors.primary.position));
+    let len = state.buffers.get(buffer_id).map(|b| b.len_chars()).unwrap_or(0);
+    let end = CharOffset(len);
 
-        buffer.cursors.primary.position = end;
-        buffer.cursors.primary.set_mark(CharOffset(0));
+    if let Some(window) = state.windows.current_mut() {
+        if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+            buffer.mark_ring.push(Mark::new(window.cursors.primary.position));
+        }
+        window.cursors.primary.position = end;
+        window.cursors.primary.set_mark(CharOffset(0));
     }
     Ok(())
 }
 
 pub fn undo_command(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.undo() {
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+        if buffer.undo(cursors) {
             state.message = Some("Undo!".to_string());
         } else {
             state.message = Some("No further undo information".to_string());
@@ -151,9 +220,9 @@ pub fn undo_command(state: &mut EditorState, _ctx: &CommandContext) -> CommandRe
 }
 
 pub fn keyboard_quit(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    if let Some(buffer) = state.current_buffer_mut() {
-        buffer.cursors.deactivate_all_marks();
-        buffer.cursors.remove_secondary_cursors();
+    if let Some(window) = state.windows.current_mut() {
+        window.cursors.deactivate_all_marks();
+        window.cursors.remove_secondary_cursors();
     }
 
     state.minibuffer.clear();
@@ -202,7 +271,7 @@ mod tests {
     #[test]
     fn test_newline() {
         let mut state = make_state("hello");
-        state.current_buffer_mut().unwrap().cursors.primary.position = CharOffset(5);
+        state.windows.current_mut().unwrap().cursors.primary.position = CharOffset(5);
         let ctx = CommandContext::new();
 
         newline(&mut state, &ctx).unwrap();
@@ -212,7 +281,7 @@ mod tests {
     #[test]
     fn test_transpose_chars() {
         let mut state = make_state("ab");
-        state.current_buffer_mut().unwrap().cursors.primary.position = CharOffset(1);
+        state.windows.current_mut().unwrap().cursors.primary.position = CharOffset(1);
         let ctx = CommandContext::new();
 
         transpose_chars(&mut state, &ctx).unwrap();

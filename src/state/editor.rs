@@ -179,8 +179,8 @@ impl EditorState {
             }
 
             if !cmd.preserves_mark {
-                if let Some(buffer) = self.current_buffer_mut() {
-                    buffer.cursors.deactivate_all_marks();
+                if let Some(window) = self.current_window_mut() {
+                    window.cursors.deactivate_all_marks();
                 }
             }
         }
@@ -197,20 +197,27 @@ impl EditorState {
     fn ensure_cursor_visible(&mut self) {
         use crate::core::rope_ext::RopeExt;
 
-        let cursor_line = if let Some(buffer) = self.current_buffer() {
-            buffer.text.char_to_position(buffer.cursors.primary.position).line
-        } else {
-            return;
+        let (cursor_line, window_height) = {
+            let window = match self.current_window() {
+                Some(w) => w,
+                None => return,
+            };
+            let buffer = match self.buffers.get(window.buffer_id) {
+                Some(b) => b,
+                None => return,
+            };
+            let line = buffer.text.char_to_position(window.cursors.primary.position).line;
+            (line, window.height as usize)
         };
 
         if let Some(window) = self.current_window_mut() {
             let visible_start = window.scroll_line;
-            let visible_end = window.scroll_line + (window.height as usize).saturating_sub(1);
+            let visible_end = window.scroll_line + window_height.saturating_sub(1);
 
             if cursor_line < visible_start {
                 window.scroll_line = cursor_line;
             } else if cursor_line >= visible_end {
-                window.scroll_line = cursor_line.saturating_sub((window.height as usize).saturating_sub(2));
+                window.scroll_line = cursor_line.saturating_sub(window_height.saturating_sub(2));
             }
         }
     }
@@ -375,7 +382,7 @@ mod tests {
 
         state.handle_key(KeyEvent::ctrl('a'));
         assert_eq!(
-            state.current_buffer().unwrap().cursors.primary.position.0,
+            state.current_window().unwrap().cursors.primary.position.0,
             0
         );
     }

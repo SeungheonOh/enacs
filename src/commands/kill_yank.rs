@@ -6,17 +6,28 @@ use super::registry::{Command, CommandContext, CommandError, CommandResult};
 
 pub fn kill_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
     let count = ctx.repeat_count();
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
 
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.read_only {
-            return Err(CommandError::ReadOnly);
-        }
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
 
-        let pos = buffer.cursors.primary.position;
+    let (start, end) = {
+        let window = state.windows.current().unwrap();
+        let buffer = match state.buffers.get(buffer_id) {
+            Some(b) => b,
+            None => return Ok(()),
+        };
+
+        let pos = window.cursors.primary.position;
         let position = buffer.text.char_to_position(pos);
         let line_end = buffer.text.line_end_char(position.line);
 
-        let (start, end) = if pos == line_end {
+        if pos == line_end {
             let next_char = CharOffset(pos.0 + 1);
             if next_char.0 <= buffer.len_chars() {
                 (pos, next_char)
@@ -32,12 +43,18 @@ pub fn kill_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
                 }
             }
             (pos, end)
-        };
-
-        let killed = buffer.delete_region(start, end);
-        if !killed.is_empty() {
-            state.kill_ring.push(killed, state.last_was_kill);
         }
+    };
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    let killed = if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+        buffer.delete_region(cursors, start, end)
+    } else {
+        String::new()
+    };
+
+    if !killed.is_empty() {
+        state.kill_ring.push(killed, state.last_was_kill);
     }
 
     state.last_was_kill = true;
@@ -46,23 +63,40 @@ pub fn kill_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
 
 pub fn kill_word(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
     let count = ctx.repeat_count();
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
 
-    if let Some(buffer) = state.current_buffer_mut() {
-        if buffer.read_only {
-            return Err(CommandError::ReadOnly);
-        }
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
 
-        let start = buffer.cursors.primary.position;
+    let (start, end) = {
+        let window = state.windows.current().unwrap();
+        let buffer = match state.buffers.get(buffer_id) {
+            Some(b) => b,
+            None => return Ok(()),
+        };
+
+        let start = window.cursors.primary.position;
         let mut end = start;
-
         for _ in 0..count {
             end = find_word_boundary_forward(&buffer.text, end);
         }
+        (start, end)
+    };
 
-        let killed = buffer.delete_region(start, end);
-        if !killed.is_empty() {
-            state.kill_ring.push(killed, state.last_was_kill);
-        }
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    let killed = if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+        buffer.delete_region(cursors, start, end)
+    } else {
+        String::new()
+    };
+
+    if !killed.is_empty() {
+        state.kill_ring.push(killed, state.last_was_kill);
     }
 
     state.last_was_kill = true;
@@ -71,32 +105,45 @@ pub fn kill_word(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
 
 pub fn backward_kill_word(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
     let count = ctx.repeat_count();
-
-    let killed = {
-        if let Some(buffer) = state.current_buffer_mut() {
-            if buffer.read_only {
-                return Err(CommandError::ReadOnly);
-            }
-
-            let end = buffer.cursors.primary.position;
-            let mut start = end;
-
-            for _ in 0..count {
-                start = find_word_boundary_backward(&buffer.text, start);
-            }
-
-            let killed = buffer.delete_region(start, end);
-
-            for cursor in buffer.cursors.all_cursors_mut() {
-                if cursor.position >= end {
-                    cursor.position = start;
-                }
-            }
-            killed
-        } else {
-            String::new()
-        }
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
     };
+
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let (start, end) = {
+        let window = state.windows.current().unwrap();
+        let buffer = match state.buffers.get(buffer_id) {
+            Some(b) => b,
+            None => return Ok(()),
+        };
+
+        let end = window.cursors.primary.position;
+        let mut start = end;
+        for _ in 0..count {
+            start = find_word_boundary_backward(&buffer.text, start);
+        }
+        (start, end)
+    };
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    let killed = if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+        buffer.delete_region(cursors, start, end)
+    } else {
+        String::new()
+    };
+
+    if let Some(window) = state.windows.current_mut() {
+        for cursor in window.cursors.all_cursors_mut() {
+            if cursor.position >= end {
+                cursor.position = start;
+            }
+        }
+    }
 
     if !killed.is_empty() {
         state.kill_ring.push_prepend(killed);
@@ -107,30 +154,38 @@ pub fn backward_kill_word(state: &mut EditorState, ctx: &CommandContext) -> Comm
 }
 
 pub fn kill_region(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    let killed = {
-        if let Some(buffer) = state.current_buffer_mut() {
-            if buffer.read_only {
-                return Err(CommandError::ReadOnly);
-            }
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
 
-            let region = buffer.cursors.primary.region();
-            if let Some((start, end)) = region {
-                let killed = buffer.delete_region(start, end);
-                buffer.cursors.primary.deactivate_mark();
-                Some(killed)
-            } else {
-                state.message = Some("The mark is not set now, so there is no region".to_string());
-                return Err(CommandError::NoMark);
-            }
-        } else {
-            None
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let region = state.windows.current().and_then(|w| w.cursors.primary.region());
+    let (start, end) = match region {
+        Some((s, e)) => (s, e),
+        None => {
+            state.message = Some("The mark is not set now, so there is no region".to_string());
+            return Err(CommandError::NoMark);
         }
     };
 
-    if let Some(killed) = killed {
-        if !killed.is_empty() {
-            state.kill_ring.push(killed, false);
-        }
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    let killed = if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+        buffer.delete_region(cursors, start, end)
+    } else {
+        String::new()
+    };
+
+    if let Some(window) = state.windows.current_mut() {
+        window.cursors.primary.deactivate_mark();
+    }
+
+    if !killed.is_empty() {
+        state.kill_ring.push(killed, false);
     }
 
     state.last_was_kill = true;
@@ -138,42 +193,53 @@ pub fn kill_region(state: &mut EditorState, _ctx: &CommandContext) -> CommandRes
 }
 
 pub fn copy_region_as_kill(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    let copied = {
-        if let Some(buffer) = state.current_buffer_mut() {
-            let region = buffer.cursors.primary.region();
-            if let Some((start, end)) = region {
-                let copied = buffer.slice(start, end);
-                buffer.cursors.primary.deactivate_mark();
-                Some(copied)
-            } else {
-                state.message = Some("The mark is not set now, so there is no region".to_string());
-                return Err(CommandError::NoMark);
-            }
-        } else {
-            None
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let region = state.windows.current().and_then(|w| w.cursors.primary.region());
+    let (start, end) = match region {
+        Some((s, e)) => (s, e),
+        None => {
+            state.message = Some("The mark is not set now, so there is no region".to_string());
+            return Err(CommandError::NoMark);
         }
     };
 
-    if let Some(copied) = copied {
-        if !copied.is_empty() {
-            state.kill_ring.push(copied, false);
-        }
-        state.message = Some("Region saved".to_string());
+    let copied = state.buffers.get(buffer_id).map(|b| b.slice(start, end)).unwrap_or_default();
+
+    if let Some(window) = state.windows.current_mut() {
+        window.cursors.primary.deactivate_mark();
     }
+
+    if !copied.is_empty() {
+        state.kill_ring.push(copied, false);
+    }
+    state.message = Some("Region saved".to_string());
 
     Ok(())
 }
 
 pub fn yank(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    if let Some(text) = state.kill_ring.yank().map(|s| s.to_string()) {
-        if let Some(buffer) = state.current_buffer_mut() {
-            if buffer.read_only {
-                return Err(CommandError::ReadOnly);
-            }
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
 
-            let start = buffer.cursors.primary.position;
-            buffer.insert_string(&text);
-            buffer.cursors.primary.set_mark(start);
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    if let Some(text) = state.kill_ring.yank().map(|s| s.to_string()) {
+        let start = state.windows.current().unwrap().cursors.primary.position;
+        let cursors = &mut state.windows.current_mut().unwrap().cursors;
+        if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+            buffer.insert_string(cursors, &text);
+        }
+        if let Some(window) = state.windows.current_mut() {
+            window.cursors.primary.set_mark(start);
         }
         state.kill_ring.reset_yank_pointer();
     } else {
@@ -190,20 +256,29 @@ pub fn yank_pop(state: &mut EditorState, ctx: &CommandContext) -> CommandResult 
         return Ok(());
     }
 
-    let start_pos = {
-        if let Some(buffer) = state.current_buffer_mut() {
-            if buffer.read_only {
-                return Err(CommandError::ReadOnly);
-            }
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
 
-            if let Some((mark, point)) = buffer.cursors.primary.mark.zip(Some(buffer.cursors.primary.position)) {
-                let (start, end) = if mark < point { (mark, point) } else { (point, mark) };
-                buffer.delete_region(start, end);
-                buffer.cursors.primary.position = start;
-                Some(start)
-            } else {
-                None
+    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    if read_only {
+        return Err(CommandError::ReadOnly);
+    }
+
+    let start_pos = {
+        let window = state.windows.current().unwrap();
+        if let Some((mark, point)) = window.cursors.primary.mark.zip(Some(window.cursors.primary.position)) {
+            let (start, end) = if mark < point { (mark, point) } else { (point, mark) };
+            
+            let cursors = &mut state.windows.current_mut().unwrap().cursors;
+            if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+                buffer.delete_region(cursors, start, end);
             }
+            if let Some(window) = state.windows.current_mut() {
+                window.cursors.primary.position = start;
+            }
+            Some(start)
         } else {
             None
         }
@@ -211,9 +286,12 @@ pub fn yank_pop(state: &mut EditorState, ctx: &CommandContext) -> CommandResult 
 
     if let Some(start) = start_pos {
         if let Some(text) = state.kill_ring.yank_pop().map(|s| s.to_string()) {
-            if let Some(buffer) = state.current_buffer_mut() {
-                buffer.insert_string(&text);
-                buffer.cursors.primary.set_mark(start);
+            let cursors = &mut state.windows.current_mut().unwrap().cursors;
+            if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+                buffer.insert_string(cursors, &text);
+            }
+            if let Some(window) = state.windows.current_mut() {
+                window.cursors.primary.set_mark(start);
             }
         }
     }
@@ -280,9 +358,8 @@ mod tests {
     #[test]
     fn test_kill_region() {
         let mut state = make_state("hello world");
-        let buffer = state.current_buffer_mut().unwrap();
-        buffer.cursors.primary.position = CharOffset(6);
-        buffer.cursors.primary.set_mark(CharOffset(0));
+        state.windows.current_mut().unwrap().cursors.primary.position = CharOffset(6);
+        state.windows.current_mut().unwrap().cursors.primary.set_mark(CharOffset(0));
 
         let ctx = CommandContext::new();
         kill_region(&mut state, &ctx).unwrap();
