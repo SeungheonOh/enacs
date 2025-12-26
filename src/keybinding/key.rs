@@ -161,9 +161,30 @@ impl From<crossterm::event::KeyEvent> for KeyEvent {
 
         let key = match event.code {
             KeyCode::Char(c) => {
+                // Handle terminal quirks for Ctrl key combinations
+                // Terminals send these due to ASCII control code mappings
+                if modifiers.contains(Modifiers::CTRL) {
+                    match c {
+                        // C-/ sends C-_ or C-7 in most terminals (ASCII 31)
+                        '7' | '_' => return Self { key: Key::Char('/'), modifiers },
+                        // C-Space sends C-@ (ASCII 0)
+                        '@' => return Self { key: Key::Char(' '), modifiers },
+                        // C-[ is Escape (ASCII 27)
+                        '[' => return Self { key: Key::Escape, modifiers: Modifiers::NONE },
+                        // C-i is Tab (ASCII 9)
+                        'i' if !event.modifiers.contains(KeyModifiers::SHIFT) => {
+                            return Self { key: Key::Tab, modifiers: Modifiers::NONE }
+                        }
+                        // C-m is Enter (ASCII 13)
+                        'm' if !event.modifiers.contains(KeyModifiers::SHIFT) => {
+                            return Self { key: Key::Enter, modifiers: Modifiers::NONE }
+                        }
+                        _ => {}
+                    }
+                }
+                
                 // Normalize: if char is uppercase and we have modifiers (Ctrl/Alt),
                 // convert to lowercase and add SHIFT modifier.
-                // This handles terminals that send 'B' with Alt instead of 'b' with Alt+Shift.
                 if c.is_ascii_uppercase() && (modifiers.contains(Modifiers::CTRL) || modifiers.contains(Modifiers::META)) {
                     modifiers |= Modifiers::SHIFT;
                     Key::Char(c.to_ascii_lowercase())
