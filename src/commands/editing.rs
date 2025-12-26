@@ -244,7 +244,94 @@ pub fn keyboard_quit(state: &mut EditorState, _ctx: &CommandContext) -> CommandR
 
     state.minibuffer.clear();
     state.message = Some("Quit".to_string());
-    Err(CommandError::Cancelled)
+    Ok(())
+}
+
+pub fn spawn_cursors_at_word_matches(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let buffer = match state.buffers.get(buffer_id) {
+        Some(b) => b,
+        None => return Ok(()),
+    };
+
+    let window = match state.windows.current_mut() {
+        Some(w) => w,
+        None => return Ok(()),
+    };
+
+    if window.cursors.count() > 1 {
+        return Ok(());
+    }
+
+    let primary_cursor = window.cursors.primary.clone();
+
+    use crate::core::rope_ext::{find_word_boundary_backward, find_word_boundary_forward};
+
+    let (word, cursor_offset) = if let Some((start, end)) = primary_cursor.region() {
+        let word = buffer.slice(start, end).to_string();
+        let cursor_offset = primary_cursor.position.0 - start.0;
+        (word, cursor_offset)
+    } else {
+        let word_start = find_word_boundary_backward(&buffer.text, primary_cursor.position);
+        let word_end = find_word_boundary_forward(&buffer.text, primary_cursor.position);
+
+        if word_start == word_end {
+            return Ok(());
+        }
+
+        let word = buffer.slice(word_start, word_end).to_string();
+        let cursor_offset = primary_cursor.position.0 - word_start.0;
+        (word, cursor_offset)
+    };
+
+    if word.is_empty() {
+        return Ok(());
+    }
+
+    let text = buffer.text.to_string();
+    let mut cursor_positions = Vec::new();
+
+    let mut search_start = 0;
+    while let Some(pos) = text[search_start..].find(&word) {
+        let abs_pos = search_start + pos;
+        let word_start = CharOffset(abs_pos);
+        let word_end = CharOffset(abs_pos + word.len());
+
+        let is_current_cursor = if primary_cursor.mark.is_some() {
+            let (curr_start, curr_end) = primary_cursor.region().unwrap_or((primary_cursor.position, primary_cursor.position));
+            word_start == curr_start && word_end == curr_end
+        } else {
+            word_start == primary_cursor.position
+        };
+
+        if !is_current_cursor {
+            let cursor_pos = CharOffset(word_start.0 + cursor_offset.min(word.len()));
+            cursor_positions.push(cursor_pos);
+        }
+
+        search_start = abs_pos + 1;
+    }
+
+    for pos in cursor_positions {
+        window.cursors.add_cursor(pos);
+    }
+
+    let count = window.cursors.count();
+    state.message = Some(format!("Spawned {} cursor(s)", count));
+
+    Ok(())
+}
+
+pub fn clear_multiple_cursors(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
+    if let Some(window) = state.windows.current_mut() {
+        window.cursors.remove_secondary_cursors();
+        state.message = Some("Cleared multiple cursors".to_string());
+    }
+    Ok(())
 }
 
 fn self_insert_command(_state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
@@ -265,6 +352,8 @@ pub fn all_commands() -> Vec<Command> {
         Command::new("undo", undo_command),
         Command::new("redo", redo_command),
         Command::new("keyboard-quit", keyboard_quit),
+        Command::new("spawn-cursors-at-word-matches", spawn_cursors_at_word_matches),
+        Command::new("clear-multiple-cursors", clear_multiple_cursors),
     ]
 }
 

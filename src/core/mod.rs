@@ -7,7 +7,7 @@ pub mod rope_ext;
 pub mod undo;
 
 pub use buffer::{Buffer, BufferId, BufferMode};
-pub use cursor::{Cursor, CursorSet};
+pub use cursor::{Cursor, CursorId, CursorSet};
 pub use kill_ring::KillRing;
 pub use mark::{Mark, MarkRing};
 pub use position::{ByteOffset, CharOffset, Position};

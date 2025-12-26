@@ -57,8 +57,6 @@ fn render_window(
         None => return Ok(()),
     };
 
-    let region = window.cursors.primary.region();
-
     for row in 0..window.height {
         let line_idx = window.scroll_line + row as usize;
         let y = window.y + row;
@@ -78,14 +76,29 @@ fn render_window(
 
                 let char_offset = line_start_char + col;
 
-                let in_region = region
-                    .map(|(start, end)| char_offset >= start.0 && char_offset < end.0)
-                    .unwrap_or(false);
+                let mut in_any_region = false;
+                for cursor in window.cursors.all_cursors() {
+                    if let Some((start, end)) = cursor.region() {
+                        if char_offset >= start.0 && char_offset < end.0 {
+                            in_any_region = true;
+                            break;
+                        }
+                    }
+                }
 
-                if in_region {
+                let is_cursor_pos = window.cursors.all_cursors().any(|c| c.position.0 == char_offset);
+                let is_primary_cursor = window.cursors.primary.position.0 == char_offset;
+
+                if in_any_region {
                     queue!(
                         stdout,
                         SetBackgroundColor(Color::Blue),
+                        SetForegroundColor(Color::White)
+                    )?;
+                } else if is_cursor_pos && !is_primary_cursor {
+                    queue!(
+                        stdout,
+                        SetBackgroundColor(Color::DarkGrey),
                         SetForegroundColor(Color::White)
                     )?;
                 }
@@ -98,7 +111,7 @@ fn render_window(
                     queue!(stdout, Print(ch))?;
                 }
 
-                if in_region {
+                if in_any_region || (is_cursor_pos && !is_primary_cursor) {
                     queue!(stdout, ResetColor)?;
                 }
             }
@@ -153,6 +166,14 @@ fn render_modeline(
         .map(|w| if w.cursors.primary.mark_active { " Mark" } else { "" })
         .unwrap_or("");
 
+    let cursor_indicator = window.map(|w| {
+        if w.cursors.count() > 1 {
+            format!(" [{}c]", w.cursors.count())
+        } else {
+            String::new()
+        }
+    }).unwrap_or_default();
+
     let (line, col) = match (buffer, window) {
         (Some(b), Some(w)) => {
             let pos = b.text.char_to_position(w.cursors.primary.position);
@@ -161,7 +182,7 @@ fn render_modeline(
         _ => (1, 1),
     };
 
-    let left = format!("-{}:{}- {}{} ", modified, readonly, buffer_name, mark_indicator);
+    let left = format!("-{}:{}- {}{}{} ", modified, readonly, buffer_name, mark_indicator, cursor_indicator);
     let right = format!(" L{}:C{} ", line, col);
 
     let padding = (width as usize).saturating_sub(left.len() + right.len());

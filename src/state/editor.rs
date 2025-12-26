@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::commands::registry::{build_default_registry, CommandContext, CommandRegistry, PrefixArg};
-use crate::core::{Buffer, BufferId, KillRing};
+use crate::core::{Buffer, BufferId};
 use crate::keybinding::default::default_keymap;
 use crate::keybinding::{KeyEvent, KeyMap, KeyResolution, KeyResolver};
 
@@ -13,13 +13,11 @@ pub struct EditorState {
     pub buffers: BufferManager,
     pub windows: WindowManager,
     pub minibuffer: Minibuffer,
-    pub kill_ring: KillRing,
     pub keymap: KeyMap,
     pub key_resolver: KeyResolver,
     pub command_registry: CommandRegistry,
     pub message: Option<String>,
     pub last_command: Option<&'static str>,
-    pub last_was_kill: bool,
     pub prefix_arg: PrefixArg,
     pub should_quit: bool,
     pub pending_exit: bool,
@@ -43,13 +41,11 @@ impl EditorState {
             buffers,
             windows,
             minibuffer: Minibuffer::new(),
-            kill_ring: KillRing::default(),
             keymap: default_keymap(),
             key_resolver: KeyResolver::new(),
             command_registry: build_default_registry(),
             message: None,
             last_command: None,
-            last_was_kill: false,
             prefix_arg: PrefixArg::None,
             should_quit: false,
             pending_exit: false,
@@ -179,8 +175,11 @@ impl EditorState {
             .unwrap_or((false, false, true));
 
         if !is_kill {
-            self.last_was_kill = false;
-            self.kill_ring.set_last_was_kill(false);
+            if let Some(window) = self.current_window_mut() {
+                for cursor in window.cursors.all_cursors_mut() {
+                    cursor.kill_ring.set_last_was_kill(false);
+                }
+            }
         }
 
         if !preserves_mark {

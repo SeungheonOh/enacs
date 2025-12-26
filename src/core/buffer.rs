@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use ropey::Rope;
 
-use super::cursor::CursorSet;
+use super::cursor::{CursorId, CursorSet};
 use super::mark::MarkRing;
 use super::position::CharOffset;
 use super::undo::{UndoEdit, UndoResult, UndoTree};
@@ -130,8 +130,17 @@ impl Buffer {
             return;
         }
 
+        let is_newline = s.contains('\n');
+        if is_newline {
+            self.undo_tree.add_boundary();
+        }
+
+        self.undo_tree.set_cursors_before(cursors.clone());
+
         let positions = cursors.positions_descending();
         let char_count = s.chars().count();
+
+        self.undo_tree.begin_batch();
 
         for pos in positions {
             let char_idx = pos.0.min(self.text.len_chars());
@@ -140,13 +149,70 @@ impl Buffer {
             cursors.adjust_positions_after_insert(CharOffset(char_idx), char_count);
         }
 
+        self.undo_tree.end_batch();
+
         for cursor in cursors.all_cursors_mut() {
             cursor.position = CharOffset(cursor.position.0 + char_count);
             cursor.deactivate_mark();
         }
 
         self.modified = true;
-        cursors.sort_and_merge();
+        cursors.sort();
+
+        if is_newline {
+            self.undo_tree.add_boundary();
+        }
+    }
+
+    pub fn insert_at_cursors(
+        &mut self,
+        cursors: &mut CursorSet,
+        texts: Vec<(CursorId, String)>,
+    ) {
+        if self.read_only || texts.is_empty() {
+            return;
+        }
+
+        let mut ops: Vec<(CursorId, CharOffset, String)> = texts
+            .into_iter()
+            .filter_map(|(id, text)| {
+                if text.is_empty() {
+                    return None;
+                }
+                cursors.get_by_id(id).map(|c| (id, c.position, text))
+            })
+            .collect();
+
+        ops.sort_by(|a, b| b.1.cmp(&a.1));
+
+        self.undo_tree.begin_batch();
+
+        for (cursor_id, pos, text) in ops {
+            let char_idx = pos.0.min(self.text.len_chars());
+            let char_count = text.chars().count();
+
+            self.undo_tree.record_insert(CharOffset(char_idx), text.clone());
+            self.text.insert(char_idx, &text);
+
+            for cursor in cursors.all_cursors_mut() {
+                if cursor.id == cursor_id {
+                    cursor.position = CharOffset(char_idx + char_count);
+                    cursor.deactivate_mark();
+                } else if cursor.position > CharOffset(char_idx) {
+                    cursor.position = CharOffset(cursor.position.0 + char_count);
+                }
+                if let Some(mark) = cursor.mark {
+                    if mark > CharOffset(char_idx) {
+                        cursor.mark = Some(CharOffset(mark.0 + char_count));
+                    }
+                }
+            }
+        }
+
+        self.undo_tree.end_batch();
+
+        self.modified = true;
+        cursors.sort();
     }
 
     pub fn delete_char_forward(&mut self, cursors: &mut CursorSet) -> Option<char> {
@@ -156,6 +222,8 @@ impl Buffer {
 
         let positions = cursors.positions_descending();
         let mut deleted = None;
+
+        self.undo_tree.begin_batch();
 
         for pos in positions {
             let char_idx = pos.0;
@@ -168,10 +236,12 @@ impl Buffer {
             }
         }
 
+        self.undo_tree.end_batch();
+
         if deleted.is_some() {
             self.modified = true;
         }
-        cursors.sort_and_merge();
+        cursors.sort();
         deleted
     }
 
@@ -182,6 +252,8 @@ impl Buffer {
 
         let positions = cursors.positions_descending();
         let mut deleted = None;
+
+        self.undo_tree.begin_batch();
 
         for pos in positions {
             if pos.0 > 0 {
@@ -194,10 +266,12 @@ impl Buffer {
             }
         }
 
+        self.undo_tree.end_batch();
+
         if deleted.is_some() {
             self.modified = true;
         }
-        cursors.sort_and_merge();
+        cursors.sort();
         deleted
     }
 
@@ -221,11 +295,57 @@ impl Buffer {
         cursors.adjust_positions_after_delete(start, end);
         self.mark_ring.adjust_after_delete(start, end);
         self.modified = true;
-        cursors.sort_and_merge();
+        cursors.sort();
 
         self.undo_tree.break_coalesce();
 
         deleted
+    }
+
+    pub fn delete_regions(
+        &mut self,
+        cursors: &mut CursorSet,
+        regions: Vec<(CursorId, CharOffset, CharOffset)>,
+    ) -> Vec<(CursorId, String)> {
+        if self.read_only {
+            return Vec::new();
+        }
+
+        let mut ops: Vec<(CursorId, CharOffset, CharOffset)> = regions
+            .into_iter()
+            .filter(|(_, start, end)| start < end)
+            .collect();
+
+        ops.sort_by(|a, b| b.1.cmp(&a.1));
+
+        self.undo_tree.break_coalesce();
+        self.undo_tree.begin_batch();
+
+        let mut results = Vec::new();
+
+        for (cursor_id, start, end) in ops {
+            let start_idx = start.0.min(self.text.len_chars());
+            let end_idx = end.0.min(self.text.len_chars());
+
+            if start_idx >= end_idx {
+                continue;
+            }
+
+            let deleted: String = self.text.slice(start_idx..end_idx).to_string();
+            self.undo_tree.record_delete(start, deleted.clone());
+            self.text.remove(start_idx..end_idx);
+            cursors.adjust_positions_after_delete(start, end);
+            self.mark_ring.adjust_after_delete(start, end);
+
+            results.push((cursor_id, deleted));
+        }
+
+        self.undo_tree.end_batch();
+
+        self.modified = true;
+        cursors.sort();
+
+        results
     }
 
     fn apply_undo_edits(&mut self, cursors: &mut CursorSet, edits: Vec<UndoEdit>) {
@@ -378,5 +498,99 @@ mod tests {
         buffer.insert_string(&mut cursors, "X");
 
         assert_eq!(buffer.text.to_string(), "Xaa Xbb Xcc");
+    }
+
+    #[test]
+    fn test_multi_cursor_undo_single_action() {
+        let mut buffer = Buffer::from_string("test", "aa bb cc");
+        let mut cursors = CursorSet::new();
+        cursors.primary.position = CharOffset(0);
+        cursors.add_cursor(CharOffset(3));
+        cursors.add_cursor(CharOffset(6));
+
+        buffer.insert_string(&mut cursors, "X");
+        assert_eq!(buffer.text.to_string(), "Xaa Xbb Xcc");
+
+        buffer.add_undo_boundary();
+
+        buffer.undo(&mut cursors);
+        assert_eq!(buffer.text.to_string(), "aa bb cc");
+    }
+
+    #[test]
+    fn test_multi_cursor_coalesce_word() {
+        let mut buffer = Buffer::from_string("test", "");
+        let mut cursors = CursorSet::new();
+        cursors.primary.position = CharOffset(0);
+
+        buffer.insert_string(&mut cursors, "h");
+        buffer.insert_string(&mut cursors, "e");
+        buffer.insert_string(&mut cursors, "l");
+        buffer.insert_string(&mut cursors, "l");
+        buffer.insert_string(&mut cursors, "o");
+
+        assert_eq!(buffer.text.to_string(), "hello");
+
+        buffer.add_undo_boundary();
+        buffer.undo(&mut cursors);
+
+        assert_eq!(buffer.text.to_string(), "");
+    }
+
+    #[test]
+    fn test_undo_newline_cursor_position() {
+        let mut buffer = Buffer::new("test");
+        let mut cursors = CursorSet::new();
+
+        // 1. Type "foo"
+        buffer.insert_string(&mut cursors, "foo");
+        assert_eq!(buffer.text.to_string(), "foo");
+        assert_eq!(cursors.primary.position, CharOffset(3));
+
+        // 2. Type newline
+        buffer.insert_string(&mut cursors, "\n");
+        assert_eq!(buffer.text.to_string(), "foo\n");
+        assert_eq!(cursors.primary.position, CharOffset(4));
+
+        // 3. Type "bar"
+        buffer.insert_string(&mut cursors, "bar");
+        assert_eq!(buffer.text.to_string(), "foo\nbar");
+        assert_eq!(cursors.primary.position, CharOffset(7));
+
+        // Undo "bar"
+        buffer.undo(&mut cursors);
+        assert_eq!(buffer.text.to_string(), "foo\n");
+        // Cursor should be at start of line 2 (offset 4)
+        assert_eq!(cursors.primary.position, CharOffset(4));
+
+        // Undo "\n"
+        buffer.undo(&mut cursors);
+        assert_eq!(buffer.text.to_string(), "foo");
+        // Cursor should be at end of line 1 (offset 3)
+        assert_eq!(cursors.primary.position, CharOffset(3));
+
+        // Undo "foo"
+        buffer.undo(&mut cursors);
+        assert_eq!(buffer.text.to_string(), "");
+        assert_eq!(cursors.primary.position, CharOffset(0));
+    }
+
+    #[test]
+    fn test_multi_cursor_coalesce_word_multiple_cursors() {
+        let mut buffer = Buffer::from_string("test", "X Y");
+        let mut cursors = CursorSet::new();
+        cursors.primary.position = CharOffset(0);
+        cursors.add_cursor(CharOffset(2));
+
+        buffer.insert_string(&mut cursors, "h");
+        assert_eq!(buffer.text.to_string(), "hX hY");
+
+        buffer.insert_string(&mut cursors, "i");
+        assert_eq!(buffer.text.to_string(), "hiX hiY");
+
+        buffer.add_undo_boundary();
+        buffer.undo(&mut cursors);
+
+        assert_eq!(buffer.text.to_string(), "X Y");
     }
 }

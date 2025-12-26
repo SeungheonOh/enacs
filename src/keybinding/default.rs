@@ -188,17 +188,13 @@ pub fn default_keymap() -> KeyMap {
         KeyEvent::new(Key::Char('/'), Modifiers::CTRL),
         "undo",
     );
-    // map.bind_command(
-    //     KeyEvent::new(Key::Char('_'), Modifiers::CTRL),
-    //     "undo",
-    // );
-    // map.bind_command(
-    //     KeyEvent::new(Key::Char('?'), Modifiers::CTRL),
-    //     "redo",
-    // );
-    // map.bind_command(KeyEvent::ctrl_shift('/'), "redo");
 
-    map.bind_command(KeyEvent::ctrl('g'), "keyboard-quit");
+    // alternative keyboard layout is gay
+    map.bind_command(KeyEvent::ctrl('\''), "spawn-cursors-at-word-matches");
+
+    let mut cg_map = KeyMap::new();
+    cg_map.bind_command(KeyEvent::ctrl('g'), "keyboard-quit");
+    map.bind_prefix(KeyEvent::ctrl('g'), cg_map);
     map.bind_command(KeyEvent::meta('x'), "execute-extended-command");
 
     let mut cx_map = KeyMap::new();
@@ -219,6 +215,7 @@ pub fn default_keymap() -> KeyMap {
     cx_map.bind_command(KeyEvent::ctrl('x'), "exchange-point-and-mark");
     cx_map.bind_command(KeyEvent::char('h'), "mark-whole-buffer");
     cx_map.bind_command(KeyEvent::char('u'), "undo");
+    cx_map.bind_command(KeyEvent::char('m'), "spawn-cursors-at-word-matches");
 
     cx_map.bind_command(KeyEvent::ctrl('c'), "exit");
 

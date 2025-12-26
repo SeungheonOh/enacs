@@ -35,31 +35,23 @@ pub fn next_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
     };
 
     for _ in 0..count {
-        let next_line_info = {
-            let window = state.windows.current().unwrap();
+        if let Some(window) = state.windows.current_mut() {
             let buffer = match state.buffers.get(buffer_id) {
                 Some(b) => b,
                 None => return Ok(()),
             };
-            let pos = buffer.text.char_to_position(window.cursors.primary.position);
-            let goal_col = window.cursors.primary.goal_column.unwrap_or(pos.column);
-            let total_lines = buffer.text.total_lines();
 
-            if pos.line + 1 < total_lines {
-                let next_line = pos.line + 1;
-                let line_len = buffer.text.line_len_chars(next_line);
-                let new_col = goal_col.min(line_len);
-                let line_start = buffer.text.line_start_char(next_line);
-                Some((CharOffset(line_start.0 + new_col), goal_col))
-            } else {
-                None
-            }
-        };
+            for cursor in window.cursors.all_cursors_mut() {
+                let pos = buffer.text.char_to_position(cursor.position);
+                let goal_col = cursor.goal_column.unwrap_or(pos.column);
+                let total_lines = buffer.text.total_lines();
 
-        if let Some((new_pos, goal_col)) = next_line_info {
-            if let Some(window) = state.windows.current_mut() {
-                for cursor in window.cursors.all_cursors_mut() {
-                    cursor.position = new_pos;
+                if pos.line + 1 < total_lines {
+                    let next_line = pos.line + 1;
+                    let line_len = buffer.text.line_len_chars(next_line);
+                    let new_col = goal_col.min(line_len);
+                    let line_start = buffer.text.line_start_char(next_line);
+                    cursor.position = CharOffset(line_start.0 + new_col);
                     cursor.goal_column = Some(goal_col);
                 }
             }
@@ -76,30 +68,22 @@ pub fn previous_line(state: &mut EditorState, ctx: &CommandContext) -> CommandRe
     };
 
     for _ in 0..count {
-        let prev_line_info = {
-            let window = state.windows.current().unwrap();
+        if let Some(window) = state.windows.current_mut() {
             let buffer = match state.buffers.get(buffer_id) {
                 Some(b) => b,
                 None => return Ok(()),
             };
-            let pos = buffer.text.char_to_position(window.cursors.primary.position);
-            let goal_col = window.cursors.primary.goal_column.unwrap_or(pos.column);
 
-            if pos.line > 0 {
-                let prev_line = pos.line - 1;
-                let line_len = buffer.text.line_len_chars(prev_line);
-                let new_col = goal_col.min(line_len);
-                let line_start = buffer.text.line_start_char(prev_line);
-                Some((CharOffset(line_start.0 + new_col), goal_col))
-            } else {
-                None
-            }
-        };
+            for cursor in window.cursors.all_cursors_mut() {
+                let pos = buffer.text.char_to_position(cursor.position);
+                let goal_col = cursor.goal_column.unwrap_or(pos.column);
 
-        if let Some((new_pos, goal_col)) = prev_line_info {
-            if let Some(window) = state.windows.current_mut() {
-                for cursor in window.cursors.all_cursors_mut() {
-                    cursor.position = new_pos;
+                if pos.line > 0 {
+                    let prev_line = pos.line - 1;
+                    let line_len = buffer.text.line_len_chars(prev_line);
+                    let new_col = goal_col.min(line_len);
+                    let line_start = buffer.text.line_start_char(prev_line);
+                    cursor.position = CharOffset(line_start.0 + new_col);
                     cursor.goal_column = Some(goal_col);
                 }
             }
@@ -114,18 +98,15 @@ pub fn move_beginning_of_line(state: &mut EditorState, _ctx: &CommandContext) ->
         None => return Ok(()),
     };
 
-    let new_pos = {
-        let window = state.windows.current().unwrap();
+    if let Some(window) = state.windows.current_mut() {
         let buffer = match state.buffers.get(buffer_id) {
             Some(b) => b,
             None => return Ok(()),
         };
-        let pos = buffer.text.char_to_position(window.cursors.primary.position);
-        buffer.text.line_start_char(pos.line)
-    };
 
-    if let Some(window) = state.windows.current_mut() {
         for cursor in window.cursors.all_cursors_mut() {
+            let pos = buffer.text.char_to_position(cursor.position);
+            let new_pos = buffer.text.line_start_char(pos.line);
             cursor.position = new_pos;
             cursor.goal_column = Some(0);
         }
@@ -139,18 +120,15 @@ pub fn move_end_of_line(state: &mut EditorState, _ctx: &CommandContext) -> Comma
         None => return Ok(()),
     };
 
-    let new_pos = {
-        let window = state.windows.current().unwrap();
+    if let Some(window) = state.windows.current_mut() {
         let buffer = match state.buffers.get(buffer_id) {
             Some(b) => b,
             None => return Ok(()),
         };
-        let pos = buffer.text.char_to_position(window.cursors.primary.position);
-        buffer.text.line_end_char(pos.line)
-    };
 
-    if let Some(window) = state.windows.current_mut() {
         for cursor in window.cursors.all_cursors_mut() {
+            let pos = buffer.text.char_to_position(cursor.position);
+            let new_pos = buffer.text.line_end_char(pos.line);
             cursor.position = new_pos;
             cursor.goal_column = None;
         }
@@ -186,21 +164,18 @@ pub fn forward_word(state: &mut EditorState, ctx: &CommandContext) -> CommandRes
         None => return Ok(()),
     };
 
-    for _ in 0..count {
-        let new_pos = {
-            let window = state.windows.current().unwrap();
-            let buffer = match state.buffers.get(buffer_id) {
-                Some(b) => b,
-                None => return Ok(()),
-            };
-            find_word_boundary_forward(&buffer.text, window.cursors.primary.position)
+    if let Some(window) = state.windows.current_mut() {
+        let buffer = match state.buffers.get(buffer_id) {
+            Some(b) => b,
+            None => return Ok(()),
         };
 
-        if let Some(window) = state.windows.current_mut() {
-            for cursor in window.cursors.all_cursors_mut() {
+        for cursor in window.cursors.all_cursors_mut() {
+            for _ in 0..count {
+                let new_pos = find_word_boundary_forward(&buffer.text, cursor.position);
                 cursor.position = new_pos;
-                cursor.goal_column = None;
             }
+            cursor.goal_column = None;
         }
     }
     Ok(())
@@ -213,21 +188,18 @@ pub fn backward_word(state: &mut EditorState, ctx: &CommandContext) -> CommandRe
         None => return Ok(()),
     };
 
-    for _ in 0..count {
-        let new_pos = {
-            let window = state.windows.current().unwrap();
-            let buffer = match state.buffers.get(buffer_id) {
-                Some(b) => b,
-                None => return Ok(()),
-            };
-            find_word_boundary_backward(&buffer.text, window.cursors.primary.position)
+    if let Some(window) = state.windows.current_mut() {
+        let buffer = match state.buffers.get(buffer_id) {
+            Some(b) => b,
+            None => return Ok(()),
         };
 
-        if let Some(window) = state.windows.current_mut() {
-            for cursor in window.cursors.all_cursors_mut() {
+        for cursor in window.cursors.all_cursors_mut() {
+            for _ in 0..count {
+                let new_pos = find_word_boundary_backward(&buffer.text, cursor.position);
                 cursor.position = new_pos;
-                cursor.goal_column = None;
             }
+            cursor.goal_column = None;
         }
     }
     Ok(())
@@ -359,17 +331,15 @@ pub fn goto_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
         None => return Ok(()),
     };
 
-    let new_pos = {
+    if let Some(window) = state.windows.current_mut() {
         let buffer = match state.buffers.get(buffer_id) {
             Some(b) => b,
             None => return Ok(()),
         };
         let max_line = buffer.text.total_lines().saturating_sub(1);
         let target_line = line.min(max_line);
-        buffer.text.line_start_char(target_line)
-    };
+        let new_pos = buffer.text.line_start_char(target_line);
 
-    if let Some(window) = state.windows.current_mut() {
         for cursor in window.cursors.all_cursors_mut() {
             cursor.position = new_pos;
             cursor.goal_column = None;

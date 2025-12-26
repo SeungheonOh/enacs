@@ -1,20 +1,44 @@
+ use std::sync::atomic::{AtomicU64, Ordering};
+
+use super::kill_ring::KillRing;
 use super::position::CharOffset;
+
+static CURSOR_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CursorId(pub u64);
+
+impl CursorId {
+    pub fn new() -> Self {
+        Self(CURSOR_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl Default for CursorId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Cursor {
+    pub id: CursorId,
     pub position: CharOffset,
     pub goal_column: Option<usize>,
     pub mark: Option<CharOffset>,
     pub mark_active: bool,
+    pub kill_ring: KillRing,
 }
 
 impl Default for Cursor {
     fn default() -> Self {
         Self {
+            id: CursorId::new(),
             position: CharOffset(0),
             goal_column: None,
             mark: None,
             mark_active: false,
+            kill_ring: KillRing::default(),
         }
     }
 }
@@ -22,10 +46,12 @@ impl Default for Cursor {
 impl Cursor {
     pub fn new(position: CharOffset) -> Self {
         Self {
+            id: CursorId::new(),
             position,
             goal_column: None,
             mark: None,
             mark_active: false,
+            kill_ring: KillRing::default(),
         }
     }
 
@@ -122,29 +148,40 @@ impl CursorSet {
             }
         }
 
-        let cursor = Cursor::new(position);
+        let mut cursor = Cursor::new(position);
+        cursor.kill_ring = self.primary.kill_ring.clone();
         self.secondary.push(cursor);
-        self.sort_and_merge();
+        self.sort();
     }
 
     pub fn remove_secondary_cursors(&mut self) {
         self.secondary.clear();
     }
 
-    pub fn sort_and_merge(&mut self) {
+    pub fn sort(&mut self) {
         if self.secondary.is_empty() {
             return;
         }
 
-        let mut all: Vec<Cursor> = std::iter::once(self.primary.clone())
+        let mut all: Vec<Cursor> = std::iter::once(std::mem::take(&mut self.primary))
             .chain(self.secondary.drain(..))
             .collect();
 
         all.sort_by_key(|c| c.position);
-        all.dedup_by_key(|c| c.position);
 
         self.primary = all.remove(0);
         self.secondary = all;
+    }
+
+    pub fn get_by_id(&self, id: CursorId) -> Option<&Cursor> {
+        self.all_cursors().find(|c| c.id == id)
+    }
+
+    pub fn get_by_id_mut(&mut self, id: CursorId) -> Option<&mut Cursor> {
+        if self.primary.id == id {
+            return Some(&mut self.primary);
+        }
+        self.secondary.iter_mut().find(|c| c.id == id)
     }
 
     pub fn positions_descending(&self) -> Vec<CharOffset> {
@@ -152,6 +189,12 @@ impl CursorSet {
         positions.sort();
         positions.reverse();
         positions
+    }
+
+    pub fn ids_and_positions_descending(&self) -> Vec<(CursorId, CharOffset)> {
+        let mut items: Vec<_> = self.all_cursors().map(|c| (c.id, c.position)).collect();
+        items.sort_by(|a, b| b.1.cmp(&a.1));
+        items
     }
 
     pub fn adjust_positions_after_insert(&mut self, insert_pos: CharOffset, len: usize) {
