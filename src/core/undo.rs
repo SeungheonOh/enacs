@@ -13,23 +13,25 @@ pub enum Edit {
     },
 }
 
-#[derive(Debug, Clone)]
-pub struct UndoNode {
-    pub edits: Vec<Edit>,
-    pub cursors_before: Option<CursorSet>,
-    pub children: Vec<usize>,
-    pub parent: Option<usize>,
-}
-
-impl UndoNode {
-    fn new(parent: Option<usize>) -> Self {
-        Self {
-            edits: Vec::new(),
-            cursors_before: None,
-            children: Vec::new(),
-            parent,
+impl Edit {
+    fn inverse(&self) -> Edit {
+        match self {
+            Edit::Insert { position, text } => Edit::Delete {
+                position: *position,
+                text: text.clone(),
+            },
+            Edit::Delete { position, text } => Edit::Insert {
+                position: *position,
+                text: text.clone(),
+            },
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct UndoEntry {
+    pub edits: Vec<Edit>,
+    pub cursors_before: Option<CursorSet>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,15 +43,14 @@ pub enum CoalesceMode {
 
 #[derive(Debug)]
 pub struct UndoTree {
-    nodes: Vec<UndoNode>,
-    current: usize,
-    redo_stack: Vec<usize>,
+    entries: Vec<UndoEntry>,
+    undo_index: Option<usize>,
     pending_edits: Vec<Edit>,
     pending_cursors: Option<CursorSet>,
     coalesce_mode: CoalesceMode,
     last_insert_end: Option<CharOffset>,
     last_delete_pos: Option<CharOffset>,
-    max_nodes: usize,
+    max_entries: usize,
 }
 
 impl Default for UndoTree {
@@ -59,18 +60,16 @@ impl Default for UndoTree {
 }
 
 impl UndoTree {
-    pub fn new(max_nodes: usize) -> Self {
-        let root = UndoNode::new(None);
+    pub fn new(max_entries: usize) -> Self {
         Self {
-            nodes: vec![root],
-            current: 0,
-            redo_stack: Vec::new(),
+            entries: Vec::new(),
+            undo_index: None,
             pending_edits: Vec::new(),
             pending_cursors: None,
             coalesce_mode: CoalesceMode::None,
             last_insert_end: None,
             last_delete_pos: None,
-            max_nodes,
+            max_entries,
         }
     }
 
@@ -136,6 +135,7 @@ impl UndoTree {
     }
 
     pub fn record_insert(&mut self, position: CharOffset, text: String) {
+        self.undo_index = None;
         let text_len = text.chars().count();
 
         if self.should_coalesce_insert(position, &text) {
@@ -158,6 +158,8 @@ impl UndoTree {
     }
 
     pub fn record_delete(&mut self, position: CharOffset, text: String) {
+        self.undo_index = None;
+
         if self.should_coalesce_delete(position, &text) {
             if let Some(Edit::Delete { position: ref mut del_pos, text: ref mut existing }) = self.pending_edits.last_mut() {
                 let is_backspace = position.0 < del_pos.0;
@@ -201,16 +203,11 @@ impl UndoTree {
             return;
         }
 
-        self.redo_stack.clear();
-
-        let mut node = UndoNode::new(Some(self.current));
-        node.edits = std::mem::take(&mut self.pending_edits);
-        node.cursors_before = self.pending_cursors.take();
-
-        let new_idx = self.nodes.len();
-        self.nodes[self.current].children.push(new_idx);
-        self.nodes.push(node);
-        self.current = new_idx;
+        let entry = UndoEntry {
+            edits: std::mem::take(&mut self.pending_edits),
+            cursors_before: self.pending_cursors.take(),
+        };
+        self.entries.push(entry);
 
         self.coalesce_mode = CoalesceMode::None;
 
@@ -224,30 +221,32 @@ impl UndoTree {
     pub fn undo(&mut self) -> UndoResult {
         self.flush_pending();
 
-        if self.current == 0 {
+        let idx = self.undo_index.unwrap_or(self.entries.len());
+        if idx == 0 {
             return UndoResult::Nothing;
         }
 
-        let node = &self.nodes[self.current];
-        if node.edits.is_empty() {
-            return UndoResult::Nothing;
-        }
+        let entry = &self.entries[idx - 1];
+        let cursors = entry.cursors_before.clone();
 
-        let edits_to_undo: Vec<Edit> = node.edits.iter().rev().cloned().collect();
-        let cursors = node.cursors_before.clone();
+        let inverse_edits: Vec<Edit> = entry.edits.iter().rev().map(|e| e.inverse()).collect();
 
-        self.redo_stack.push(self.current);
-        self.current = node.parent.unwrap_or(0);
+        self.entries.push(UndoEntry {
+            edits: inverse_edits.clone(),
+            cursors_before: None,
+        });
+
+        self.undo_index = Some(idx - 1);
 
         UndoResult::Apply {
-            edits: edits_to_undo
+            edits: inverse_edits
                 .into_iter()
                 .map(|e| match e {
-                    Edit::Insert { position, text } => UndoEdit::Delete {
+                    Edit::Insert { position, text } => UndoEdit::Insert { position, text },
+                    Edit::Delete { position, text } => UndoEdit::Delete {
                         position,
                         len: text.chars().count(),
                     },
-                    Edit::Delete { position, text } => UndoEdit::Insert { position, text },
                 })
                 .collect(),
             restore_cursors: cursors,
@@ -255,65 +254,32 @@ impl UndoTree {
     }
 
     pub fn redo(&mut self) -> UndoResult {
-        self.flush_pending();
-
-        let redo_target = match self.redo_stack.pop() {
-            Some(idx) => idx,
-            None => {
-                if let Some(&child) = self.nodes[self.current].children.last() {
-                    child
-                } else {
-                    return UndoResult::Nothing;
-                }
-            }
-        };
-
-        let node = &self.nodes[redo_target];
-        let edits: Vec<UndoEdit> = node
-            .edits
-            .iter()
-            .map(|e| match e {
-                Edit::Insert { position, text } => UndoEdit::Insert {
-                    position: *position,
-                    text: text.clone(),
-                },
-                Edit::Delete { position, text } => UndoEdit::Delete {
-                    position: *position,
-                    len: text.chars().count(),
-                },
-            })
-            .collect();
-
-        self.current = redo_target;
-
-        UndoResult::Apply {
-            edits,
-            restore_cursors: None,
-        }
+        self.undo()
     }
 
     pub fn can_undo(&self) -> bool {
-        self.current != 0 || !self.pending_edits.is_empty()
+        let idx = self.undo_index.unwrap_or(self.entries.len());
+        idx > 0 || !self.pending_edits.is_empty()
     }
 
     pub fn can_redo(&self) -> bool {
-        !self.redo_stack.is_empty() || !self.nodes[self.current].children.is_empty()
+        self.can_undo()
     }
 
     fn gc_if_needed(&mut self) {
-        if self.nodes.len() <= self.max_nodes {
+        if self.entries.len() <= self.max_entries {
             return;
         }
-
-        // Simple GC: just prevent unbounded growth
-        // A more sophisticated approach would prune old branches
+        let remove_count = self.entries.len() - self.max_entries;
+        self.entries.drain(0..remove_count);
+        if let Some(idx) = self.undo_index {
+            self.undo_index = Some(idx.saturating_sub(remove_count));
+        }
     }
 
     pub fn clear(&mut self) {
-        self.nodes.clear();
-        self.nodes.push(UndoNode::new(None));
-        self.current = 0;
-        self.redo_stack.clear();
+        self.entries.clear();
+        self.undo_index = None;
         self.pending_edits.clear();
         self.pending_cursors = None;
         self.coalesce_mode = CoalesceMode::None;
@@ -411,21 +377,19 @@ mod tests {
     #[test]
     fn test_coalesce_breaks_on_space() {
         let mut tree = UndoTree::new(100);
-        // Type "hi yo" - should create 3 undo groups: "hi", " ", "yo"
         tree.record_insert(CharOffset(0), "h".into());
         tree.record_insert(CharOffset(1), "i".into());
-        tree.record_insert(CharOffset(2), " ".into()); // space breaks coalescing
+        tree.record_insert(CharOffset(2), " ".into());
         tree.record_insert(CharOffset(3), "y".into());
         tree.record_insert(CharOffset(4), "o".into());
         tree.add_boundary();
 
-        // First undo removes "yo" (2 chars)
         match tree.undo() {
             UndoResult::Apply { edits, .. } => {
                 assert_eq!(edits.len(), 1);
                 match &edits[0] {
                     UndoEdit::Delete { len, .. } => {
-                        assert_eq!(*len, 2); // "yo"
+                        assert_eq!(*len, 2);
                     }
                     _ => panic!("Expected delete"),
                 }
@@ -433,13 +397,12 @@ mod tests {
             _ => panic!("Expected Apply"),
         }
 
-        // Second undo removes " " (1 char)
         match tree.undo() {
             UndoResult::Apply { edits, .. } => {
                 assert_eq!(edits.len(), 1);
                 match &edits[0] {
                     UndoEdit::Delete { len, .. } => {
-                        assert_eq!(*len, 1); // " "
+                        assert_eq!(*len, 1);
                     }
                     _ => panic!("Expected delete"),
                 }
@@ -447,13 +410,12 @@ mod tests {
             _ => panic!("Expected Apply"),
         }
 
-        // Third undo removes "hi" (2 chars)
         match tree.undo() {
             UndoResult::Apply { edits, .. } => {
                 assert_eq!(edits.len(), 1);
                 match &edits[0] {
                     UndoEdit::Delete { len, .. } => {
-                        assert_eq!(*len, 2); // "hi"
+                        assert_eq!(*len, 2);
                     }
                     _ => panic!("Expected delete"),
                 }
@@ -463,40 +425,51 @@ mod tests {
     }
 
     #[test]
-    fn test_redo() {
+    fn test_emacs_style_undo_traversal() {
         let mut tree = UndoTree::new(100);
-        tree.record_insert(CharOffset(0), "hello".into());
+
+        tree.record_insert(CharOffset(0), "foo\n".into());
+        tree.add_boundary();
+        tree.record_insert(CharOffset(4), "bar\n".into());
+        tree.add_boundary();
+        tree.record_insert(CharOffset(8), "baz\n".into());
+        tree.add_boundary();
+        tree.record_insert(CharOffset(12), "faz".into());
         tree.add_boundary();
 
         tree.undo();
+        tree.undo();
 
-        match tree.redo() {
+        tree.record_insert(CharOffset(8), "hello\n".into());
+        tree.add_boundary();
+        tree.record_insert(CharOffset(14), "world".into());
+        tree.add_boundary();
+
+        tree.undo();
+        tree.undo();
+
+        match tree.undo() {
             UndoResult::Apply { edits, .. } => {
-                assert_eq!(edits.len(), 1);
                 match &edits[0] {
                     UndoEdit::Insert { text, .. } => {
-                        assert_eq!(text, "hello");
+                        assert_eq!(text, "baz\n");
                     }
                     _ => panic!("Expected insert"),
                 }
             }
             _ => panic!("Expected Apply"),
         }
-    }
 
-    #[test]
-    fn test_branch_preserves_redo() {
-        let mut tree = UndoTree::new(100);
-        tree.record_insert(CharOffset(0), "first".into());
-        tree.add_boundary();
-        tree.record_insert(CharOffset(5), "second".into());
-        tree.add_boundary();
-
-        tree.undo();
-
-        tree.record_insert(CharOffset(5), "other".into());
-        tree.add_boundary();
-
-        assert!(tree.nodes[tree.current].parent.is_some());
+        match tree.undo() {
+            UndoResult::Apply { edits, .. } => {
+                match &edits[0] {
+                    UndoEdit::Insert { text, .. } => {
+                        assert_eq!(text, "faz");
+                    }
+                    _ => panic!("Expected insert"),
+                }
+            }
+            _ => panic!("Expected Apply"),
+        }
     }
 }
