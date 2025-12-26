@@ -30,6 +30,15 @@ impl TerminalFrontend {
             height,
         }
     }
+
+    fn poll_event(&mut self, timeout: Duration) -> Option<FrontendEvent> {
+        if event::poll(timeout).ok()? {
+            let event = event::read().ok()?;
+            input::convert_event(event)
+        } else {
+            None
+        }
+    }
 }
 
 impl Default for TerminalFrontend {
@@ -67,13 +76,30 @@ impl Frontend for TerminalFrontend {
         (self.width, self.height)
     }
 
-    fn poll_event(&mut self, timeout: Duration) -> Option<FrontendEvent> {
-        if event::poll(timeout).ok()? {
-            let event = event::read().ok()?;
-            input::convert_event(event)
-        } else {
-            None
+    fn run(mut self, mut state: EditorState) -> Result<(), FrontendError> {
+        loop {
+            self.render(&state)?;
+
+            if state.should_quit {
+                break;
+            }
+
+            if let Some(event) = self.poll_event(Duration::from_millis(100)) {
+                match event {
+                    FrontendEvent::Key(key) => {
+                        state.handle_key(key);
+                    }
+                    FrontendEvent::Resize(width, height) => {
+                        state.set_dimensions(width, height);
+                        self.width = width;
+                        self.height = height;
+                    }
+                    FrontendEvent::Mouse(_) => {}
+                    FrontendEvent::Focus(_) => {}
+                }
+            }
         }
+        Ok(())
     }
 
     fn render(&mut self, state: &EditorState) -> Result<(), FrontendError> {

@@ -1,4 +1,3 @@
-use std::time::Duration;
 use thiserror::Error;
 
 use crate::keybinding::KeyEvent;
@@ -20,7 +19,7 @@ pub trait Frontend {
 
     fn size(&self) -> (u16, u16);
 
-    fn poll_event(&mut self, timeout: Duration) -> Option<FrontendEvent>;
+    fn run(self, state: EditorState) -> Result<(), FrontendError>;
 
     fn render(&mut self, state: &EditorState) -> Result<(), FrontendError>;
 
