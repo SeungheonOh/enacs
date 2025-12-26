@@ -219,6 +219,23 @@ pub fn undo_command(state: &mut EditorState, _ctx: &CommandContext) -> CommandRe
     Ok(())
 }
 
+pub fn redo_command(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
+    let buffer_id = match state.windows.current() {
+        Some(w) => w.buffer_id,
+        None => return Ok(()),
+    };
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+        if buffer.redo(cursors) {
+            state.message = Some("Redo!".to_string());
+        } else {
+            state.message = Some("No further redo information".to_string());
+        }
+    }
+    Ok(())
+}
+
 pub fn keyboard_quit(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
     if let Some(window) = state.windows.current_mut() {
         window.cursors.deactivate_all_marks();
@@ -241,6 +258,7 @@ pub fn all_commands() -> Vec<Command> {
         Command::mark("exchange-point-and-mark", exchange_point_and_mark),
         Command::mark("mark-whole-buffer", mark_whole_buffer),
         Command::new("undo", undo_command),
+        Command::new("redo", redo_command),
         Command::new("keyboard-quit", keyboard_quit),
     ]
 }

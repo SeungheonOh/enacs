@@ -11,4 +11,4 @@ pub use cursor::{Cursor, CursorSet};
 pub use kill_ring::KillRing;
 pub use mark::{Mark, MarkRing};
 pub use position::{ByteOffset, CharOffset, Position};
-pub use undo::{UndoEntry, UndoHistory};
+pub use undo::{UndoEdit, UndoResult, UndoTree};

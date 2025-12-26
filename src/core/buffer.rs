@@ -6,7 +6,7 @@ use ropey::Rope;
 use super::cursor::CursorSet;
 use super::mark::MarkRing;
 use super::position::CharOffset;
-use super::undo::{UndoHistory, UndoResult};
+use super::undo::{UndoEdit, UndoResult, UndoTree};
 
 static BUFFER_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -43,7 +43,7 @@ pub struct Buffer {
     pub modified: bool,
     pub read_only: bool,
     pub mode: BufferMode,
-    pub undo_history: UndoHistory,
+    pub undo_tree: UndoTree,
 }
 
 impl Buffer {
@@ -57,7 +57,7 @@ impl Buffer {
             modified: false,
             read_only: false,
             mode: BufferMode::default(),
-            undo_history: UndoHistory::default(),
+            undo_tree: UndoTree::default(),
         }
     }
 
@@ -77,7 +77,7 @@ impl Buffer {
             modified: false,
             read_only: false,
             mode: BufferMode::default(),
-            undo_history: UndoHistory::default(),
+            undo_tree: UndoTree::default(),
         };
 
         Ok(buffer)
@@ -93,7 +93,7 @@ impl Buffer {
             modified: false,
             read_only: false,
             mode: BufferMode::default(),
-            undo_history: UndoHistory::default(),
+            undo_tree: UndoTree::default(),
         }
     }
 
@@ -135,7 +135,7 @@ impl Buffer {
 
         for pos in positions {
             let char_idx = pos.0.min(self.text.len_chars());
-            self.undo_history.record_insert(CharOffset(char_idx), s.to_string());
+            self.undo_tree.record_insert(CharOffset(char_idx), s.to_string());
             self.text.insert(char_idx, s);
             cursors.adjust_positions_after_insert(CharOffset(char_idx), char_count);
         }
@@ -162,7 +162,7 @@ impl Buffer {
             if char_idx < self.text.len_chars() {
                 let c = self.text.char(char_idx);
                 deleted = Some(c);
-                self.undo_history.record_delete(pos, c.to_string());
+                self.undo_tree.record_delete(pos, c.to_string());
                 self.text.remove(char_idx..char_idx + 1);
                 cursors.adjust_positions_after_delete(pos, CharOffset(pos.0 + 1));
             }
@@ -188,7 +188,7 @@ impl Buffer {
                 let char_idx = pos.0 - 1;
                 let c = self.text.char(char_idx);
                 deleted = Some(c);
-                self.undo_history.record_delete(CharOffset(char_idx), c.to_string());
+                self.undo_tree.record_delete(CharOffset(char_idx), c.to_string());
                 self.text.remove(char_idx..char_idx + 1);
                 cursors.adjust_positions_after_delete(CharOffset(char_idx), pos);
             }
@@ -213,42 +213,65 @@ impl Buffer {
             return String::new();
         }
 
+        self.undo_tree.break_coalesce();
+
         let deleted: String = self.text.slice(start_idx..end_idx).to_string();
-        self.undo_history.record_delete(start, deleted.clone());
+        self.undo_tree.record_delete(start, deleted.clone());
         self.text.remove(start_idx..end_idx);
         cursors.adjust_positions_after_delete(start, end);
         self.mark_ring.adjust_after_delete(start, end);
         self.modified = true;
         cursors.sort_and_merge();
+
+        self.undo_tree.break_coalesce();
+
         deleted
     }
 
-    pub fn undo(&mut self, cursors: &mut CursorSet) -> bool {
-        self.undo_history.start_undo_sequence();
-
-        match self.undo_history.undo_one() {
-            UndoResult::Insert { position, text } => {
-                let char_idx = position.0.min(self.text.len_chars());
-                self.text.insert(char_idx, &text);
-                let len = text.chars().count();
-                cursors.adjust_positions_after_insert(position, len);
-                cursors.primary.position = CharOffset(char_idx + len);
-                self.modified = true;
-                true
+    fn apply_undo_edits(&mut self, cursors: &mut CursorSet, edits: Vec<UndoEdit>) {
+        for edit in edits {
+            match edit {
+                UndoEdit::Insert { position, text } => {
+                    let char_idx = position.0.min(self.text.len_chars());
+                    self.text.insert(char_idx, &text);
+                    let len = text.chars().count();
+                    cursors.adjust_positions_after_insert(position, len);
+                    cursors.primary.position = CharOffset(char_idx + len);
+                }
+                UndoEdit::Delete { position, len } => {
+                    let start = position.0.min(self.text.len_chars());
+                    let end = (start + len).min(self.text.len_chars());
+                    if start < end {
+                        self.text.remove(start..end);
+                        cursors.adjust_positions_after_delete(position, CharOffset(end));
+                        cursors.primary.position = position;
+                    }
+                }
             }
-            UndoResult::Delete { position, len } => {
-                let start = position.0.min(self.text.len_chars());
-                let end = (start + len).min(self.text.len_chars());
-                if start < end {
-                    self.text.remove(start..end);
-                    cursors.adjust_positions_after_delete(position, CharOffset(end));
-                    cursors.primary.position = position;
-                    self.modified = true;
+        }
+        self.modified = true;
+    }
+
+    pub fn undo(&mut self, cursors: &mut CursorSet) -> bool {
+        match self.undo_tree.undo() {
+            UndoResult::Apply { edits, restore_cursors } => {
+                self.apply_undo_edits(cursors, edits);
+                if let Some(saved_cursors) = restore_cursors {
+                    *cursors = saved_cursors;
                 }
                 true
             }
-            UndoResult::RestoreCursors(new_cursors) => {
-                *cursors = new_cursors;
+            UndoResult::Nothing => false,
+        }
+    }
+
+    pub fn redo(&mut self, cursors: &mut CursorSet) -> bool {
+        match self.undo_tree.redo() {
+            UndoResult::Apply { edits, restore_cursors } => {
+                self.apply_undo_edits(cursors, edits);
+                if let Some(saved_cursors) = restore_cursors {
+                    *cursors = saved_cursors;
+                }
                 true
             }
             UndoResult::Nothing => false,
@@ -256,7 +279,15 @@ impl Buffer {
     }
 
     pub fn add_undo_boundary(&mut self) {
-        self.undo_history.add_boundary();
+        self.undo_tree.add_boundary();
+    }
+
+    pub fn break_undo_coalesce(&mut self) {
+        self.undo_tree.break_coalesce();
+    }
+
+    pub fn set_undo_cursors(&mut self, cursors: &CursorSet) {
+        self.undo_tree.set_cursors_before(cursors.clone());
     }
 
     pub fn len_chars(&self) -> usize {
