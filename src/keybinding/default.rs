@@ -192,9 +192,7 @@ pub fn default_keymap() -> KeyMap {
     // alternative keyboard layout is gay
     map.bind_command(KeyEvent::ctrl('\''), "spawn-cursors-at-word-matches");
 
-    let mut cg_map = KeyMap::new();
-    cg_map.bind_command(KeyEvent::ctrl('g'), "keyboard-quit");
-    map.bind_prefix(KeyEvent::ctrl('g'), cg_map);
+    map.bind_command(KeyEvent::ctrl('g'), "keyboard-quit");
     map.bind_command(KeyEvent::meta('x'), "execute-extended-command");
 
     let mut cx_map = KeyMap::new();
