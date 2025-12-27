@@ -144,7 +144,8 @@ impl Buffer {
 
         for pos in positions {
             let char_idx = pos.0.min(self.text.len_chars());
-            self.undo_tree.record_insert(CharOffset(char_idx), s.to_string());
+            self.undo_tree
+                .record_insert(CharOffset(char_idx), s.to_string());
             self.text.insert(char_idx, s);
             cursors.adjust_positions_after_insert(CharOffset(char_idx), char_count);
         }
@@ -164,11 +165,7 @@ impl Buffer {
         }
     }
 
-    pub fn insert_at_cursors(
-        &mut self,
-        cursors: &mut CursorSet,
-        texts: Vec<(CursorId, String)>,
-    ) {
+    pub fn insert_at_cursors(&mut self, cursors: &mut CursorSet, texts: Vec<(CursorId, String)>) {
         if self.read_only || texts.is_empty() {
             return;
         }
@@ -191,7 +188,8 @@ impl Buffer {
             let char_idx = pos.0.min(self.text.len_chars());
             let char_count = text.chars().count();
 
-            self.undo_tree.record_insert(CharOffset(char_idx), text.clone());
+            self.undo_tree
+                .record_insert(CharOffset(char_idx), text.clone());
             self.text.insert(char_idx, &text);
 
             for cursor in cursors.all_cursors_mut() {
@@ -260,7 +258,8 @@ impl Buffer {
                 let char_idx = pos.0 - 1;
                 let c = self.text.char(char_idx);
                 deleted = Some(c);
-                self.undo_tree.record_delete(CharOffset(char_idx), c.to_string());
+                self.undo_tree
+                    .record_delete(CharOffset(char_idx), c.to_string());
                 self.text.remove(char_idx..char_idx + 1);
                 cursors.adjust_positions_after_delete(CharOffset(char_idx), pos);
             }
@@ -275,7 +274,12 @@ impl Buffer {
         deleted
     }
 
-    pub fn delete_region(&mut self, cursors: &mut CursorSet, start: CharOffset, end: CharOffset) -> String {
+    pub fn delete_region(
+        &mut self,
+        cursors: &mut CursorSet,
+        start: CharOffset,
+        end: CharOffset,
+    ) -> String {
         if self.read_only || start >= end {
             return String::new();
         }
@@ -374,7 +378,10 @@ impl Buffer {
 
     pub fn undo(&mut self, cursors: &mut CursorSet) -> bool {
         match self.undo_tree.undo() {
-            UndoResult::Apply { edits, restore_cursors } => {
+            UndoResult::Apply {
+                edits,
+                restore_cursors,
+            } => {
                 self.apply_undo_edits(cursors, edits);
                 if let Some(saved_cursors) = restore_cursors {
                     *cursors = saved_cursors;
@@ -387,7 +394,10 @@ impl Buffer {
 
     pub fn redo(&mut self, cursors: &mut CursorSet) -> bool {
         match self.undo_tree.redo() {
-            UndoResult::Apply { edits, restore_cursors } => {
+            UndoResult::Apply {
+                edits,
+                restore_cursors,
+            } => {
                 self.apply_undo_edits(cursors, edits);
                 if let Some(saved_cursors) = restore_cursors {
                     *cursors = saved_cursors;

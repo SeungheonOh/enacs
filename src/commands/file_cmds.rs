@@ -1,5 +1,5 @@
-use crate::state::EditorState;
 use super::registry::{Command, CommandContext, CommandError, CommandResult};
+use crate::state::EditorState;
 
 pub fn find_file(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
     state.start_minibuffer_prompt("Find file: ", "find-file-complete");

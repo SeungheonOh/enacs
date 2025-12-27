@@ -5,11 +5,7 @@ use crate::state::EditorState;
 
 use super::registry::{Command, CommandContext, CommandError, CommandResult};
 
-fn update_kill_rings(
-    state: &mut EditorState,
-    killed: Vec<(CursorId, String)>,
-    prepend: bool,
-) {
+fn update_kill_rings(state: &mut EditorState, killed: Vec<(CursorId, String)>, prepend: bool) {
     let window = match state.windows.current_mut() {
         Some(w) => w,
         None => return,
@@ -24,7 +20,9 @@ fn update_kill_rings(
             if prepend {
                 cursor.kill_ring.push_prepend(text);
             } else {
-                cursor.kill_ring.push(text, cursor.kill_ring.last_was_kill());
+                cursor
+                    .kill_ring
+                    .push(text, cursor.kill_ring.last_was_kill());
             }
         }
     }
@@ -45,7 +43,11 @@ pub fn kill_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -108,7 +110,11 @@ pub fn kill_word(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -154,7 +160,11 @@ pub fn backward_kill_word(state: &mut EditorState, ctx: &CommandContext) -> Comm
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -199,7 +209,11 @@ pub fn kill_region(state: &mut EditorState, _ctx: &CommandContext) -> CommandRes
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -283,7 +297,11 @@ pub fn yank(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -308,15 +326,11 @@ pub fn yank(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
         return Ok(());
     }
 
-    let mark_positions: Vec<(CursorId, CharOffset)> = texts
-        .iter()
-        .map(|(id, pos, _)| (*id, *pos))
-        .collect();
+    let mark_positions: Vec<(CursorId, CharOffset)> =
+        texts.iter().map(|(id, pos, _)| (*id, *pos)).collect();
 
-    let insert_ops: Vec<(CursorId, String)> = texts
-        .into_iter()
-        .map(|(id, _, text)| (id, text))
-        .collect();
+    let insert_ops: Vec<(CursorId, String)> =
+        texts.into_iter().map(|(id, _, text)| (id, text)).collect();
 
     let cursors = &mut state.windows.current_mut().unwrap().cursors;
     if let Some(buffer) = state.buffers.get_mut(buffer_id) {
@@ -345,7 +359,11 @@ pub fn yank_pop(state: &mut EditorState, ctx: &CommandContext) -> CommandResult 
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -504,7 +522,13 @@ mod tests {
     #[test]
     fn test_kill_region() {
         let mut state = make_state("hello world");
-        state.windows.current_mut().unwrap().cursors.primary.position = CharOffset(6);
+        state
+            .windows
+            .current_mut()
+            .unwrap()
+            .cursors
+            .primary
+            .position = CharOffset(6);
         state
             .windows
             .current_mut()
@@ -561,7 +585,11 @@ mod tests {
         let mut state = make_state("X Y Z");
         let window = state.windows.current_mut().unwrap();
         window.cursors.primary.position = CharOffset(0);
-        window.cursors.primary.kill_ring.push("AAA".to_string(), false);
+        window
+            .cursors
+            .primary
+            .kill_ring
+            .push("AAA".to_string(), false);
         window.cursors.add_cursor(CharOffset(2));
         window.cursors.add_cursor(CharOffset(4));
 

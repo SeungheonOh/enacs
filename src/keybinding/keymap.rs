@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use super::key::KeyEvent;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub enum KeyBinding {

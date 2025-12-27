@@ -1,4 +1,4 @@
- use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::kill_ring::KillRing;
 use super::position::CharOffset;
@@ -89,8 +89,7 @@ impl Cursor {
     }
 
     pub fn region_or_point(&self) -> (CharOffset, CharOffset) {
-        self.region()
-            .unwrap_or((self.position, self.position))
+        self.region().unwrap_or((self.position, self.position))
     }
 
     pub fn exchange_point_and_mark(&mut self) {
@@ -210,7 +209,11 @@ impl CursorSet {
         }
     }
 
-    pub fn adjust_positions_after_delete(&mut self, delete_start: CharOffset, delete_end: CharOffset) {
+    pub fn adjust_positions_after_delete(
+        &mut self,
+        delete_start: CharOffset,
+        delete_end: CharOffset,
+    ) {
         let deleted_len = delete_end.0 - delete_start.0;
         for cursor in self.all_cursors_mut() {
             if cursor.position >= delete_end {

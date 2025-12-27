@@ -3,7 +3,9 @@ use std::io::Stdout;
 use crossterm::{
     cursor::{Hide, MoveTo, Show},
     queue,
-    style::{Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor},
+    style::{
+        Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
+    },
 };
 
 use crate::core::rope_ext::RopeExt;
@@ -86,7 +88,10 @@ fn render_window(
                     }
                 }
 
-                let is_cursor_pos = window.cursors.all_cursors().any(|c| c.position.0 == char_offset);
+                let is_cursor_pos = window
+                    .cursors
+                    .all_cursors()
+                    .any(|c| c.position.0 == char_offset);
                 let is_primary_cursor = window.cursors.primary.position.0 == char_offset;
 
                 if in_any_region {
@@ -159,20 +164,32 @@ fn render_modeline(
     let buffer = state.current_buffer();
     let window = state.current_window();
     let buffer_name = buffer.map(|b| b.name.as_str()).unwrap_or("[No buffer]");
-    let modified = buffer.map(|b| if b.modified { "**" } else { "--" }).unwrap_or("--");
-    let readonly = buffer.map(|b| if b.read_only { "%%" } else { "--" }).unwrap_or("--");
+    let modified = buffer
+        .map(|b| if b.modified { "**" } else { "--" })
+        .unwrap_or("--");
+    let readonly = buffer
+        .map(|b| if b.read_only { "%%" } else { "--" })
+        .unwrap_or("--");
 
     let mark_indicator = window
-        .map(|w| if w.cursors.primary.mark_active { " Mark" } else { "" })
+        .map(|w| {
+            if w.cursors.primary.mark_active {
+                " Mark"
+            } else {
+                ""
+            }
+        })
         .unwrap_or("");
 
-    let cursor_indicator = window.map(|w| {
-        if w.cursors.count() > 1 {
-            format!(" [{}c]", w.cursors.count())
-        } else {
-            String::new()
-        }
-    }).unwrap_or_default();
+    let cursor_indicator = window
+        .map(|w| {
+            if w.cursors.count() > 1 {
+                format!(" [{}c]", w.cursors.count())
+            } else {
+                String::new()
+            }
+        })
+        .unwrap_or_default();
 
     let (line, col) = match (buffer, window) {
         (Some(b), Some(w)) => {
@@ -182,7 +199,10 @@ fn render_modeline(
         _ => (1, 1),
     };
 
-    let left = format!("-{}:{}- {}{}{} ", modified, readonly, buffer_name, mark_indicator, cursor_indicator);
+    let left = format!(
+        "-{}:{}- {}{}{} ",
+        modified, readonly, buffer_name, mark_indicator, cursor_indicator
+    );
     let right = format!(" L{}:C{} ", line, col);
 
     let padding = (width as usize).saturating_sub(left.len() + right.len());

@@ -1,5 +1,5 @@
-use std::collections::VecDeque;
 use super::position::CharOffset;
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Mark(pub CharOffset);
@@ -74,7 +74,7 @@ impl MarkRing {
     pub fn adjust_after_insert(&mut self, insert_pos: CharOffset, len: usize) {
         for mark in self.marks.iter_mut() {
             if mark.0 >= insert_pos {
-                mark.0 = CharOffset(mark.0.0 + len);
+                mark.0 = CharOffset(mark.0 .0 + len);
             }
         }
     }
@@ -83,7 +83,7 @@ impl MarkRing {
         let deleted_len = delete_end.0 - delete_start.0;
         for mark in self.marks.iter_mut() {
             if mark.0 >= delete_end {
-                mark.0 = CharOffset(mark.0.0 - deleted_len);
+                mark.0 = CharOffset(mark.0 .0 - deleted_len);
             } else if mark.0 > delete_start {
                 mark.0 = delete_start;
             }

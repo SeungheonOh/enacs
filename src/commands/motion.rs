@@ -6,7 +6,10 @@ use super::registry::{Command, CommandContext, CommandResult};
 
 pub fn forward_char(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
     let count = ctx.repeat_count();
-    let max = state.current_buffer().map(|b| b.text.len_chars()).unwrap_or(0);
+    let max = state
+        .current_buffer()
+        .map(|b| b.text.len_chars())
+        .unwrap_or(0);
     if let Some(window) = state.windows.current_mut() {
         for cursor in window.cursors.all_cursors_mut() {
             cursor.position = CharOffset((cursor.position.0 + count).min(max));
@@ -147,7 +150,10 @@ pub fn beginning_of_buffer(state: &mut EditorState, _ctx: &CommandContext) -> Co
 }
 
 pub fn end_of_buffer(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
-    let end = state.current_buffer().map(|b| b.text.len_chars()).unwrap_or(0);
+    let end = state
+        .current_buffer()
+        .map(|b| b.text.len_chars())
+        .unwrap_or(0);
     if let Some(window) = state.windows.current_mut() {
         for cursor in window.cursors.all_cursors_mut() {
             cursor.position = CharOffset(end);
@@ -232,7 +238,9 @@ pub fn scroll_up_command(state: &mut EditorState, ctx: &CommandContext) -> Comma
             Some(b) => b,
             None => return Ok(()),
         };
-        let pos = buffer.text.char_to_position(window.cursors.primary.position);
+        let pos = buffer
+            .text
+            .char_to_position(window.cursors.primary.position);
         if pos.line < target_line {
             Some(buffer.text.line_start_char(target_line))
         } else {
@@ -278,7 +286,9 @@ pub fn scroll_down_command(state: &mut EditorState, ctx: &CommandContext) -> Com
             Some(b) => b,
             None => return Ok(()),
         };
-        let pos = buffer.text.char_to_position(window.cursors.primary.position);
+        let pos = buffer
+            .text
+            .char_to_position(window.cursors.primary.position);
         if pos.line > visible_end {
             Some(buffer.text.line_start_char(visible_end))
         } else {
@@ -309,7 +319,10 @@ pub fn recenter_top_bottom(state: &mut EditorState, _ctx: &CommandContext) -> Co
             Some(b) => b,
             None => return Ok(()),
         };
-        buffer.text.char_to_position(window.cursors.primary.position).line
+        buffer
+            .text
+            .char_to_position(window.cursors.primary.position)
+            .line
     };
 
     if let Some(window) = state.windows.current_mut() {
@@ -389,7 +402,10 @@ pub fn backward_word_shift(state: &mut EditorState, ctx: &CommandContext) -> Com
     backward_word(state, ctx)
 }
 
-pub fn move_beginning_of_line_shift(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
+pub fn move_beginning_of_line_shift(
+    state: &mut EditorState,
+    ctx: &CommandContext,
+) -> CommandResult {
     ensure_mark_for_shift_select(state);
     move_beginning_of_line(state, ctx)
 }
@@ -458,7 +474,10 @@ mod tests {
         let ctx = CommandContext::new();
 
         forward_char(&mut state, &ctx).unwrap();
-        assert_eq!(state.windows.current().unwrap().cursors.primary.position, CharOffset(1));
+        assert_eq!(
+            state.windows.current().unwrap().cursors.primary.position,
+            CharOffset(1)
+        );
     }
 
     #[test]
@@ -477,9 +496,15 @@ mod tests {
         let ctx = CommandContext::new();
 
         forward_word(&mut state, &ctx).unwrap();
-        assert_eq!(state.windows.current().unwrap().cursors.primary.position, CharOffset(5));
+        assert_eq!(
+            state.windows.current().unwrap().cursors.primary.position,
+            CharOffset(5)
+        );
 
         forward_word(&mut state, &ctx).unwrap();
-        assert_eq!(state.windows.current().unwrap().cursors.primary.position, CharOffset(11));
+        assert_eq!(
+            state.windows.current().unwrap().cursors.primary.position,
+            CharOffset(11)
+        );
     }
 }

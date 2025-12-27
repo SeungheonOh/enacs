@@ -52,8 +52,10 @@ impl KeyResolver {
                 }
                 Some(KeyBinding::Unbound) | None => {
                     if i == 0 && self.pending_keys.len() == 1 {
-                        if let KeyEvent { key: super::key::Key::Char(c), modifiers }
-                            = key
+                        if let KeyEvent {
+                            key: super::key::Key::Char(c),
+                            modifiers,
+                        } = key
                         {
                             if modifiers == super::key::Modifiers::NONE && !c.is_control() {
                                 self.clear();

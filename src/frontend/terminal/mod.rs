@@ -5,9 +5,7 @@ use std::io::{self, Stdout, Write};
 use std::time::Duration;
 
 use crossterm::{
-    cursor,
-    event,
-    execute,
+    cursor, event, execute,
     terminal::{self, ClearType},
 };
 
@@ -63,11 +61,7 @@ impl Frontend for TerminalFrontend {
     }
 
     fn shutdown(&mut self) -> Result<(), FrontendError> {
-        execute!(
-            self.stdout,
-            cursor::Show,
-            terminal::LeaveAlternateScreen
-        )?;
+        execute!(self.stdout, cursor::Show, terminal::LeaveAlternateScreen)?;
         terminal::disable_raw_mode()?;
         Ok(())
     }

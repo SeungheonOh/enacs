@@ -10,7 +10,11 @@ pub fn self_insert(state: &mut EditorState, c: char) -> CommandResult {
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -29,7 +33,11 @@ pub fn delete_char(state: &mut EditorState, ctx: &CommandContext) -> CommandResu
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -50,7 +58,11 @@ pub fn delete_backward_char(state: &mut EditorState, ctx: &CommandContext) -> Co
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -71,7 +83,11 @@ pub fn newline(state: &mut EditorState, ctx: &CommandContext) -> CommandResult {
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -92,7 +108,11 @@ pub fn open_line(state: &mut EditorState, ctx: &CommandContext) -> CommandResult
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -118,7 +138,11 @@ pub fn transpose_chars(state: &mut EditorState, _ctx: &CommandContext) -> Comman
         None => return Ok(()),
     };
 
-    let read_only = state.buffers.get(buffer_id).map(|b| b.read_only).unwrap_or(false);
+    let read_only = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.read_only)
+        .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
     }
@@ -189,12 +213,18 @@ pub fn mark_whole_buffer(state: &mut EditorState, _ctx: &CommandContext) -> Comm
         None => return Ok(()),
     };
 
-    let len = state.buffers.get(buffer_id).map(|b| b.len_chars()).unwrap_or(0);
+    let len = state
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.len_chars())
+        .unwrap_or(0);
     let end = CharOffset(len);
 
     if let Some(window) = state.windows.current_mut() {
         if let Some(buffer) = state.buffers.get_mut(buffer_id) {
-            buffer.mark_ring.push(Mark::new(window.cursors.primary.position));
+            buffer
+                .mark_ring
+                .push(Mark::new(window.cursors.primary.position));
         }
         window.cursors.primary.position = end;
         window.cursors.primary.set_mark(CharOffset(0));
@@ -247,7 +277,10 @@ pub fn keyboard_quit(state: &mut EditorState, _ctx: &CommandContext) -> CommandR
     Ok(())
 }
 
-pub fn spawn_cursors_at_word_matches(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
+pub fn spawn_cursors_at_word_matches(
+    state: &mut EditorState,
+    _ctx: &CommandContext,
+) -> CommandResult {
     let buffer_id = match state.windows.current() {
         Some(w) => w.buffer_id,
         None => return Ok(()),
@@ -302,7 +335,9 @@ pub fn spawn_cursors_at_word_matches(state: &mut EditorState, _ctx: &CommandCont
         let word_end = CharOffset(abs_pos + word.len());
 
         let is_current_cursor = if primary_cursor.mark.is_some() {
-            let (curr_start, curr_end) = primary_cursor.region().unwrap_or((primary_cursor.position, primary_cursor.position));
+            let (curr_start, curr_end) = primary_cursor
+                .region()
+                .unwrap_or((primary_cursor.position, primary_cursor.position));
             word_start == curr_start && word_end == curr_end
         } else {
             word_start == primary_cursor.position
@@ -352,7 +387,10 @@ pub fn all_commands() -> Vec<Command> {
         Command::new("undo", undo_command),
         Command::new("redo", redo_command),
         Command::new("keyboard-quit", keyboard_quit),
-        Command::new("spawn-cursors-at-word-matches", spawn_cursors_at_word_matches),
+        Command::new(
+            "spawn-cursors-at-word-matches",
+            spawn_cursors_at_word_matches,
+        ),
         Command::new("clear-multiple-cursors", clear_multiple_cursors),
     ]
 }
@@ -383,7 +421,13 @@ mod tests {
     #[test]
     fn test_newline() {
         let mut state = make_state("hello");
-        state.windows.current_mut().unwrap().cursors.primary.position = CharOffset(5);
+        state
+            .windows
+            .current_mut()
+            .unwrap()
+            .cursors
+            .primary
+            .position = CharOffset(5);
         let ctx = CommandContext::new();
 
         newline(&mut state, &ctx).unwrap();
@@ -393,7 +437,13 @@ mod tests {
     #[test]
     fn test_transpose_chars() {
         let mut state = make_state("ab");
-        state.windows.current_mut().unwrap().cursors.primary.position = CharOffset(1);
+        state
+            .windows
+            .current_mut()
+            .unwrap()
+            .cursors
+            .primary
+            .position = CharOffset(1);
         let ctx = CommandContext::new();
 
         transpose_chars(&mut state, &ctx).unwrap();

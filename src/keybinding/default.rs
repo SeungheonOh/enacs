@@ -51,30 +51,15 @@ pub fn default_keymap() -> KeyMap {
     map.bind_command(KeyEvent::meta('v'), "scroll-down-command");
     map.bind_command(KeyEvent::ctrl('l'), "recenter-top-bottom");
 
-    map.bind_command(
-        KeyEvent::new(Key::Right, Modifiers::NONE),
-        "forward-char",
-    );
-    map.bind_command(
-        KeyEvent::new(Key::Left, Modifiers::NONE),
-        "backward-char",
-    );
-    map.bind_command(
-        KeyEvent::new(Key::Down, Modifiers::NONE),
-        "next-line",
-    );
-    map.bind_command(
-        KeyEvent::new(Key::Up, Modifiers::NONE),
-        "previous-line",
-    );
+    map.bind_command(KeyEvent::new(Key::Right, Modifiers::NONE), "forward-char");
+    map.bind_command(KeyEvent::new(Key::Left, Modifiers::NONE), "backward-char");
+    map.bind_command(KeyEvent::new(Key::Down, Modifiers::NONE), "next-line");
+    map.bind_command(KeyEvent::new(Key::Up, Modifiers::NONE), "previous-line");
     map.bind_command(
         KeyEvent::new(Key::Home, Modifiers::NONE),
         "move-beginning-of-line",
     );
-    map.bind_command(
-        KeyEvent::new(Key::End, Modifiers::NONE),
-        "move-end-of-line",
-    );
+    map.bind_command(KeyEvent::new(Key::End, Modifiers::NONE), "move-end-of-line");
     map.bind_command(
         KeyEvent::new(Key::PageUp, Modifiers::NONE),
         "scroll-down-command",
@@ -121,14 +106,8 @@ pub fn default_keymap() -> KeyMap {
     );
 
     // Alt+Arrow for word movement (without selection)
-    map.bind_command(
-        KeyEvent::new(Key::Right, Modifiers::META),
-        "forward-word",
-    );
-    map.bind_command(
-        KeyEvent::new(Key::Left, Modifiers::META),
-        "backward-word",
-    );
+    map.bind_command(KeyEvent::new(Key::Right, Modifiers::META), "forward-word");
+    map.bind_command(KeyEvent::new(Key::Left, Modifiers::META), "backward-word");
 
     // Ctrl+Shift+Home/End for buffer start/end with selection
     map.bind_command(
@@ -145,24 +124,15 @@ pub fn default_keymap() -> KeyMap {
         KeyEvent::new(Key::Home, Modifiers::CTRL),
         "beginning-of-buffer",
     );
-    map.bind_command(
-        KeyEvent::new(Key::End, Modifiers::CTRL),
-        "end-of-buffer",
-    );
+    map.bind_command(KeyEvent::new(Key::End, Modifiers::CTRL), "end-of-buffer");
 
     map.bind_command(KeyEvent::ctrl('d'), "delete-char");
-    map.bind_command(
-        KeyEvent::new(Key::Delete, Modifiers::NONE),
-        "delete-char",
-    );
+    map.bind_command(KeyEvent::new(Key::Delete, Modifiers::NONE), "delete-char");
     map.bind_command(
         KeyEvent::new(Key::Backspace, Modifiers::NONE),
         "delete-backward-char",
     );
-    map.bind_command(
-        KeyEvent::new(Key::Enter, Modifiers::NONE),
-        "newline",
-    );
+    map.bind_command(KeyEvent::new(Key::Enter, Modifiers::NONE), "newline");
     map.bind_command(KeyEvent::ctrl('o'), "open-line");
     map.bind_command(KeyEvent::ctrl('t'), "transpose-chars");
     map.bind_command(KeyEvent::ctrl('j'), "newline");
@@ -184,10 +154,7 @@ pub fn default_keymap() -> KeyMap {
     );
     map.bind_command(KeyEvent::meta('h'), "mark-paragraph");
 
-    map.bind_command(
-        KeyEvent::new(Key::Char('/'), Modifiers::CTRL),
-        "undo",
-    );
+    map.bind_command(KeyEvent::new(Key::Char('/'), Modifiers::CTRL), "undo");
 
     // alternative keyboard layout is gay
     map.bind_command(KeyEvent::ctrl('\''), "spawn-cursors-at-word-matches");

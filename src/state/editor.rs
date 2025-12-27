@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use crate::commands::registry::{build_default_registry, CommandContext, CommandRegistry, PrefixArg};
+use crate::commands::registry::{
+    build_default_registry, CommandContext, CommandRegistry, PrefixArg,
+};
 use crate::core::{Buffer, BufferId};
 use crate::keybinding::default::default_keymap;
 use crate::keybinding::{KeyEvent, KeyMap, KeyResolution, KeyResolver};
@@ -155,7 +157,9 @@ impl EditorState {
             let exec = cmd.execute;
             exec(self, &ctx)
         } else {
-            Err(crate::commands::registry::CommandError::NotFound(name.to_string()))
+            Err(crate::commands::registry::CommandError::NotFound(
+                name.to_string(),
+            ))
         };
 
         if let Err(e) = result {
@@ -211,7 +215,10 @@ impl EditorState {
                 Some(b) => b,
                 None => return,
             };
-            let line = buffer.text.char_to_position(window.cursors.primary.position).line;
+            let line = buffer
+                .text
+                .char_to_position(window.cursors.primary.position)
+                .line;
             (line, window.height as usize)
         };
 

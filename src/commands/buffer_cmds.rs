@@ -1,5 +1,5 @@
-use crate::state::EditorState;
 use super::registry::{Command, CommandContext, CommandResult};
+use crate::state::EditorState;
 
 pub fn switch_to_buffer(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
     state.start_minibuffer_prompt("Switch to buffer: ", "switch-to-buffer-complete");

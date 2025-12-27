@@ -1,5 +1,5 @@
-use crate::state::EditorState;
 use super::registry::{Command, CommandContext, CommandResult};
+use crate::state::EditorState;
 
 pub fn split_window_below(state: &mut EditorState, _ctx: &CommandContext) -> CommandResult {
     state.windows.split_vertical();

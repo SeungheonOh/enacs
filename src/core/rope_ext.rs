@@ -144,16 +144,34 @@ mod tests {
     #[test]
     fn test_word_boundary_forward() {
         let rope = Rope::from_str("hello world foo");
-        assert_eq!(find_word_boundary_forward(&rope, CharOffset(0)), CharOffset(5));
-        assert_eq!(find_word_boundary_forward(&rope, CharOffset(5)), CharOffset(11));
-        assert_eq!(find_word_boundary_forward(&rope, CharOffset(6)), CharOffset(11));
+        assert_eq!(
+            find_word_boundary_forward(&rope, CharOffset(0)),
+            CharOffset(5)
+        );
+        assert_eq!(
+            find_word_boundary_forward(&rope, CharOffset(5)),
+            CharOffset(11)
+        );
+        assert_eq!(
+            find_word_boundary_forward(&rope, CharOffset(6)),
+            CharOffset(11)
+        );
     }
 
     #[test]
     fn test_word_boundary_backward() {
         let rope = Rope::from_str("hello world foo");
-        assert_eq!(find_word_boundary_backward(&rope, CharOffset(15)), CharOffset(12));
-        assert_eq!(find_word_boundary_backward(&rope, CharOffset(11)), CharOffset(6));
-        assert_eq!(find_word_boundary_backward(&rope, CharOffset(5)), CharOffset(0));
+        assert_eq!(
+            find_word_boundary_backward(&rope, CharOffset(15)),
+            CharOffset(12)
+        );
+        assert_eq!(
+            find_word_boundary_backward(&rope, CharOffset(11)),
+            CharOffset(6)
+        );
+        assert_eq!(
+            find_word_boundary_backward(&rope, CharOffset(5)),
+            CharOffset(0)
+        );
     }
 }

@@ -3,14 +3,8 @@ use super::position::CharOffset;
 
 #[derive(Debug, Clone)]
 pub enum Edit {
-    Insert {
-        position: CharOffset,
-        text: String,
-    },
-    Delete {
-        position: CharOffset,
-        text: String,
-    },
+    Insert { position: CharOffset, text: String },
+    Delete { position: CharOffset, text: String },
 }
 
 impl Edit {
@@ -111,11 +105,23 @@ impl UndoTree {
             return false;
         }
 
-        let all_inserts = self.pending_edits.iter().all(|e| matches!(e, Edit::Insert { .. }))
-            && last_entry.edits.iter().all(|e| matches!(e, Edit::Insert { .. }));
+        let all_inserts = self
+            .pending_edits
+            .iter()
+            .all(|e| matches!(e, Edit::Insert { .. }))
+            && last_entry
+                .edits
+                .iter()
+                .all(|e| matches!(e, Edit::Insert { .. }));
 
-        let all_deletes = self.pending_edits.iter().all(|e| matches!(e, Edit::Delete { .. }))
-            && last_entry.edits.iter().all(|e| matches!(e, Edit::Delete { .. }));
+        let all_deletes = self
+            .pending_edits
+            .iter()
+            .all(|e| matches!(e, Edit::Delete { .. }))
+            && last_entry
+                .edits
+                .iter()
+                .all(|e| matches!(e, Edit::Delete { .. }));
 
         if !all_inserts && !all_deletes {
             return false;
@@ -156,8 +162,13 @@ impl UndoTree {
         {
             match (last_edit, pend_edit) {
                 (
-                    Edit::Insert { position: last_pos, text: last_text },
-                    Edit::Insert { position: pend_pos, .. },
+                    Edit::Insert {
+                        position: last_pos,
+                        text: last_text,
+                    },
+                    Edit::Insert {
+                        position: pend_pos, ..
+                    },
                 ) => {
                     let expected_pos = CharOffset(last_pos.0 + last_text.chars().count());
                     let adjustment: usize = last_sorted[..i]
@@ -173,8 +184,13 @@ impl UndoTree {
                     coalesce_pairs.push((*last_idx, *pend_idx));
                 }
                 (
-                    Edit::Delete { position: last_pos, .. },
-                    Edit::Delete { position: pend_pos, text: pend_text },
+                    Edit::Delete {
+                        position: last_pos, ..
+                    },
+                    Edit::Delete {
+                        position: pend_pos,
+                        text: pend_text,
+                    },
                 ) => {
                     let is_backspace = pend_pos.0 + pend_text.chars().count() == last_pos.0;
                     let is_forward = *pend_pos == *last_pos;
@@ -188,16 +204,30 @@ impl UndoTree {
         }
 
         for (last_idx, pend_idx) in coalesce_pairs {
-            match (&mut last_entry.edits[last_idx], &self.pending_edits[pend_idx]) {
+            match (
+                &mut last_entry.edits[last_idx],
+                &self.pending_edits[pend_idx],
+            ) {
                 (
-                    Edit::Insert { text: ref mut last_text, .. },
-                    Edit::Insert { text: pend_text, .. },
+                    Edit::Insert {
+                        text: ref mut last_text,
+                        ..
+                    },
+                    Edit::Insert {
+                        text: pend_text, ..
+                    },
                 ) => {
                     last_text.push_str(pend_text);
                 }
                 (
-                    Edit::Delete { position: ref mut last_pos, text: ref mut last_text },
-                    Edit::Delete { position: pend_pos, text: pend_text },
+                    Edit::Delete {
+                        position: ref mut last_pos,
+                        text: ref mut last_text,
+                    },
+                    Edit::Delete {
+                        position: pend_pos,
+                        text: pend_text,
+                    },
                 ) => {
                     let is_backspace = pend_pos.0 + pend_text.chars().count() == last_pos.0;
                     if is_backspace {
@@ -240,7 +270,10 @@ impl UndoTree {
             return false;
         }
 
-        if let Some(Edit::Insert { text: pending_text, .. }) = self.pending_edits.last() {
+        if let Some(Edit::Insert {
+            text: pending_text, ..
+        }) = self.pending_edits.last()
+        {
             if let Some(last_char) = pending_text.chars().last() {
                 if Self::is_word_boundary(last_char) {
                     return false;
@@ -285,7 +318,11 @@ impl UndoTree {
         }
 
         if self.should_coalesce_insert(position, &text) {
-            if let Some(Edit::Insert { text: ref mut existing, .. }) = self.pending_edits.last_mut() {
+            if let Some(Edit::Insert {
+                text: ref mut existing,
+                ..
+            }) = self.pending_edits.last_mut()
+            {
                 existing.push_str(&text);
                 self.last_insert_end = Some(CharOffset(position.0 + text_len));
                 return;
@@ -312,7 +349,11 @@ impl UndoTree {
         }
 
         if self.should_coalesce_delete(position, &text) {
-            if let Some(Edit::Delete { position: ref mut del_pos, text: ref mut existing }) = self.pending_edits.last_mut() {
+            if let Some(Edit::Delete {
+                position: ref mut del_pos,
+                text: ref mut existing,
+            }) = self.pending_edits.last_mut()
+            {
                 let is_backspace = position.0 < del_pos.0;
                 if is_backspace {
                     existing.insert_str(0, &text);
@@ -601,26 +642,22 @@ mod tests {
         tree.undo();
 
         match tree.undo() {
-            UndoResult::Apply { edits, .. } => {
-                match &edits[0] {
-                    UndoEdit::Insert { text, .. } => {
-                        assert_eq!(text, "baz\n");
-                    }
-                    _ => panic!("Expected insert"),
+            UndoResult::Apply { edits, .. } => match &edits[0] {
+                UndoEdit::Insert { text, .. } => {
+                    assert_eq!(text, "baz\n");
                 }
-            }
+                _ => panic!("Expected insert"),
+            },
             _ => panic!("Expected Apply"),
         }
 
         match tree.undo() {
-            UndoResult::Apply { edits, .. } => {
-                match &edits[0] {
-                    UndoEdit::Insert { text, .. } => {
-                        assert_eq!(text, "faz");
-                    }
-                    _ => panic!("Expected insert"),
+            UndoResult::Apply { edits, .. } => match &edits[0] {
+                UndoEdit::Insert { text, .. } => {
+                    assert_eq!(text, "faz");
                 }
-            }
+                _ => panic!("Expected insert"),
+            },
             _ => panic!("Expected Apply"),
         }
     }

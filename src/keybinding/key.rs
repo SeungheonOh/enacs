@@ -100,8 +100,7 @@ impl KeyEvent {
     }
 
     pub fn is_printable(&self) -> bool {
-        matches!(self.key, Key::Char(c) if !c.is_control())
-            && self.modifiers == Modifiers::NONE
+        matches!(self.key, Key::Char(c) if !c.is_control()) && self.modifiers == Modifiers::NONE
     }
 }
 
@@ -166,26 +165,49 @@ impl From<crossterm::event::KeyEvent> for KeyEvent {
                 if modifiers.contains(Modifiers::CTRL) {
                     match c {
                         // C-/ sends C-_ or C-7 in most terminals (ASCII 31)
-                        '7' | '_' => return Self { key: Key::Char('/'), modifiers },
+                        '7' | '_' => {
+                            return Self {
+                                key: Key::Char('/'),
+                                modifiers,
+                            }
+                        }
                         // C-Space sends C-@ (ASCII 0)
-                        '@' => return Self { key: Key::Char(' '), modifiers },
+                        '@' => {
+                            return Self {
+                                key: Key::Char(' '),
+                                modifiers,
+                            }
+                        }
                         // C-[ is Escape (ASCII 27)
-                        '[' => return Self { key: Key::Escape, modifiers: Modifiers::NONE },
+                        '[' => {
+                            return Self {
+                                key: Key::Escape,
+                                modifiers: Modifiers::NONE,
+                            }
+                        }
                         // C-i is Tab (ASCII 9)
                         'i' if !event.modifiers.contains(KeyModifiers::SHIFT) => {
-                            return Self { key: Key::Tab, modifiers: Modifiers::NONE }
+                            return Self {
+                                key: Key::Tab,
+                                modifiers: Modifiers::NONE,
+                            }
                         }
                         // C-m is Enter (ASCII 13)
                         'm' if !event.modifiers.contains(KeyModifiers::SHIFT) => {
-                            return Self { key: Key::Enter, modifiers: Modifiers::NONE }
+                            return Self {
+                                key: Key::Enter,
+                                modifiers: Modifiers::NONE,
+                            }
                         }
                         _ => {}
                     }
                 }
-                
+
                 // Normalize: if char is uppercase and we have modifiers (Ctrl/Alt),
                 // convert to lowercase and add SHIFT modifier.
-                if c.is_ascii_uppercase() && (modifiers.contains(Modifiers::CTRL) || modifiers.contains(Modifiers::META)) {
+                if c.is_ascii_uppercase()
+                    && (modifiers.contains(Modifiers::CTRL) || modifiers.contains(Modifiers::META))
+                {
                     modifiers |= Modifiers::SHIFT;
                     Key::Char(c.to_ascii_lowercase())
                 } else {
