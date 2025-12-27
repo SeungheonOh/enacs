@@ -10,6 +10,7 @@ use crossterm::{
 
 use crate::core::rope_ext::RopeExt;
 use crate::state::EditorState;
+use crate::syntax::{Highlight, Theme};
 
 pub fn render(
     state: &EditorState,
@@ -17,8 +18,10 @@ pub fn render(
     width: u16,
     height: u16,
 ) -> std::io::Result<()> {
+    let theme = Theme::default();
+
     for window in state.windows.iter() {
-        render_window(state, stdout, window)?;
+        render_window(state, stdout, window, &theme)?;
     }
 
     render_modeline(state, stdout, width, height)?;
@@ -27,10 +30,17 @@ pub fn render(
     Ok(())
 }
 
+fn find_highlight_at_byte(highlights: &[Highlight], byte_offset: usize) -> Option<&Highlight> {
+    highlights
+        .iter()
+        .find(|h| byte_offset >= h.byte_range.start && byte_offset < h.byte_range.end)
+}
+
 fn render_window(
     state: &EditorState,
     stdout: &mut Stdout,
     window: &crate::state::Window,
+    theme: &Theme,
 ) -> std::io::Result<()> {
     let buffer = match state.buffers.get(window.buffer_id) {
         Some(b) => b,
@@ -48,7 +58,10 @@ fn render_window(
             let line_str: String = line.chars().take(window.width as usize).collect();
 
             let line_start_char = buffer.text.line_start_char(line_idx).0;
+            let line_start_byte = buffer.text.line_to_byte(line_idx);
+            let highlights = buffer.highlights_for_line(line_idx);
 
+            let mut byte_offset = line_start_byte;
             for (col, ch) in line_str.chars().enumerate() {
                 if col >= window.width as usize {
                     break;
@@ -72,6 +85,9 @@ fn render_window(
                     .any(|c| c.position.0 == char_offset);
                 let is_primary_cursor = window.cursors.primary.position.0 == char_offset;
 
+                let syntax_color = find_highlight_at_byte(&highlights, byte_offset)
+                    .map(|h| theme.color_for(h.style).to_crossterm());
+
                 if is_primary_cursor {
                     queue!(
                         stdout,
@@ -90,6 +106,8 @@ fn render_window(
                         SetBackgroundColor(Color::DarkGrey),
                         SetForegroundColor(Color::White)
                     )?;
+                } else if let Some(color) = syntax_color {
+                    queue!(stdout, SetForegroundColor(color))?;
                 }
 
                 if ch == '\n' {
@@ -100,9 +118,11 @@ fn render_window(
                     queue!(stdout, Print(ch))?;
                 }
 
-                if is_primary_cursor || in_any_region || is_cursor_pos {
+                if is_primary_cursor || in_any_region || is_cursor_pos || syntax_color.is_some() {
                     queue!(stdout, ResetColor)?;
                 }
+
+                byte_offset += ch.len_utf8();
             }
 
             let line_char_count = line_str.chars().count();

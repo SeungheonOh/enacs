@@ -5,7 +5,10 @@ use crate::state::EditorState;
 
 use super::registry::{Command, CommandContext, CommandError, CommandResult};
 
-fn delete_region_if_active(state: &mut EditorState, buffer_id: crate::core::buffer::BufferId) -> bool {
+fn delete_region_if_active(
+    state: &mut EditorState,
+    buffer_id: crate::core::buffer::BufferId,
+) -> bool {
     let regions: Vec<(CursorId, CharOffset, CharOffset)> = {
         let window = match state.windows.current() {
             Some(w) => w,

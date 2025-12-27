@@ -77,6 +77,7 @@ impl Frontend for TerminalFrontend {
 
     fn run(mut self, mut state: EditorState) -> Result<(), FrontendError> {
         loop {
+            state.update_visible_highlights();
             self.render(&state)?;
 
             if state.should_quit {

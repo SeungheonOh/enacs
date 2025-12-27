@@ -1,3 +1,4 @@
+use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -7,6 +8,8 @@ use super::cursor::{CursorId, CursorSet};
 use super::mark::MarkRing;
 use super::position::CharOffset;
 use super::undo::{UndoEdit, UndoResult, UndoTree};
+use super::BoxedHighlighter;
+use crate::syntax::{Highlight, SyntaxManager};
 
 static BUFFER_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
@@ -33,7 +36,6 @@ pub enum BufferMode {
     ReadOnly,
 }
 
-#[derive(Debug)]
 pub struct Buffer {
     pub id: BufferId,
     pub name: String,
@@ -44,6 +46,22 @@ pub struct Buffer {
     pub read_only: bool,
     pub mode: BufferMode,
     pub undo_tree: UndoTree,
+    highlighter: Option<BoxedHighlighter>,
+    highlight_dirty: bool,
+}
+
+impl std::fmt::Debug for Buffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Buffer")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("file_path", &self.file_path)
+            .field("modified", &self.modified)
+            .field("read_only", &self.read_only)
+            .field("mode", &self.mode)
+            .field("highlighter", &self.highlighter.as_ref().map(|h| h.name()))
+            .finish_non_exhaustive()
+    }
 }
 
 impl Buffer {
@@ -58,6 +76,8 @@ impl Buffer {
             read_only: false,
             mode: BufferMode::default(),
             undo_tree: UndoTree::default(),
+            highlighter: None,
+            highlight_dirty: true,
         }
     }
 
@@ -68,7 +88,10 @@ impl Buffer {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| path.to_string_lossy().into_owned());
 
-        let buffer = Self {
+        let syntax_manager = SyntaxManager::new();
+        let highlighter = syntax_manager.highlighter_for_path(&path);
+
+        let mut buffer = Self {
             id: BufferId::new(),
             name,
             file_path: Some(path),
@@ -78,15 +101,22 @@ impl Buffer {
             read_only: false,
             mode: BufferMode::default(),
             undo_tree: UndoTree::default(),
+            highlighter,
+            highlight_dirty: true,
         };
 
+        buffer.update_highlights();
         Ok(buffer)
     }
 
     pub fn from_string(name: impl Into<String>, content: impl AsRef<str>) -> Self {
-        Self {
+        let name_str = name.into();
+        let syntax_manager = SyntaxManager::new();
+        let highlighter = syntax_manager.highlighter_for_name(&name_str);
+
+        let mut buffer = Self {
             id: BufferId::new(),
-            name: name.into(),
+            name: name_str,
             file_path: None,
             text: Rope::from_str(content.as_ref()),
             mark_ring: MarkRing::default(),
@@ -94,7 +124,57 @@ impl Buffer {
             read_only: false,
             mode: BufferMode::default(),
             undo_tree: UndoTree::default(),
+            highlighter,
+            highlight_dirty: true,
+        };
+
+        buffer.update_highlights();
+        buffer
+    }
+
+    pub fn set_highlighter(&mut self, highlighter: Option<BoxedHighlighter>) {
+        self.highlighter = highlighter;
+        self.highlight_dirty = true;
+        self.update_highlights();
+    }
+
+    pub fn update_highlights(&mut self) {
+        if !self.highlight_dirty {
+            return;
         }
+        if let Some(ref mut h) = self.highlighter {
+            let source = self.text.to_string();
+            h.update(&source);
+            self.highlight_dirty = false;
+        }
+    }
+
+    pub fn highlights_for_byte_range(&self, byte_range: Range<usize>) -> Vec<Highlight> {
+        match &self.highlighter {
+            Some(h) => h.highlights_for_range(byte_range),
+            None => Vec::new(),
+        }
+    }
+
+    pub fn highlights_for_line(&self, line_idx: usize) -> Vec<Highlight> {
+        if line_idx >= self.text.len_lines() {
+            return Vec::new();
+        }
+        let start_byte = self.text.line_to_byte(line_idx);
+        let end_byte = if line_idx + 1 < self.text.len_lines() {
+            self.text.line_to_byte(line_idx + 1)
+        } else {
+            self.text.len_bytes()
+        };
+        self.highlights_for_byte_range(start_byte..end_byte)
+    }
+
+    pub fn highlighter_name(&self) -> Option<&str> {
+        self.highlighter.as_ref().map(|h| h.name())
+    }
+
+    fn mark_highlight_dirty(&mut self) {
+        self.highlight_dirty = true;
     }
 
     pub fn save(&mut self) -> std::io::Result<()> {
@@ -158,6 +238,7 @@ impl Buffer {
         }
 
         self.modified = true;
+        self.mark_highlight_dirty();
         cursors.sort();
 
         if is_newline {
@@ -210,6 +291,7 @@ impl Buffer {
         self.undo_tree.end_batch();
 
         self.modified = true;
+        self.mark_highlight_dirty();
         cursors.sort();
     }
 
@@ -229,9 +311,11 @@ impl Buffer {
             if char_idx < len {
                 let c = self.text.char(char_idx);
                 deleted = Some(c);
-                self.undo_tree.record_delete(CharOffset(char_idx), c.to_string());
+                self.undo_tree
+                    .record_delete(CharOffset(char_idx), c.to_string());
                 self.text.remove(char_idx..char_idx + 1);
-                cursors.adjust_positions_after_delete(CharOffset(char_idx), CharOffset(char_idx + 1));
+                cursors
+                    .adjust_positions_after_delete(CharOffset(char_idx), CharOffset(char_idx + 1));
             }
         }
 
@@ -239,6 +323,7 @@ impl Buffer {
 
         if deleted.is_some() {
             self.modified = true;
+            self.mark_highlight_dirty();
         }
         cursors.sort();
         deleted
@@ -264,7 +349,10 @@ impl Buffer {
                     self.undo_tree
                         .record_delete(CharOffset(char_idx), c.to_string());
                     self.text.remove(char_idx..char_idx + 1);
-                    cursors.adjust_positions_after_delete(CharOffset(char_idx), CharOffset(char_idx + 1));
+                    cursors.adjust_positions_after_delete(
+                        CharOffset(char_idx),
+                        CharOffset(char_idx + 1),
+                    );
                 }
             }
         }
@@ -273,6 +361,7 @@ impl Buffer {
 
         if deleted.is_some() {
             self.modified = true;
+            self.mark_highlight_dirty();
         }
         cursors.sort();
         deleted
@@ -303,6 +392,7 @@ impl Buffer {
         cursors.adjust_positions_after_delete(start, end);
         self.mark_ring.adjust_after_delete(start, end);
         self.modified = true;
+        self.mark_highlight_dirty();
         cursors.sort();
 
         self.undo_tree.break_coalesce();
@@ -351,6 +441,7 @@ impl Buffer {
         self.undo_tree.end_batch();
 
         self.modified = true;
+        self.mark_highlight_dirty();
         cursors.sort();
 
         results
@@ -378,6 +469,7 @@ impl Buffer {
             }
         }
         self.modified = true;
+        self.mark_highlight_dirty();
     }
 
     pub fn undo(&mut self, cursors: &mut CursorSet) -> bool {

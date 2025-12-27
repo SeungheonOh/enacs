@@ -360,6 +360,14 @@ impl EditorState {
     pub fn set_dimensions(&mut self, width: u16, height: u16) {
         self.windows.set_dimensions(width, height);
     }
+
+    pub fn update_visible_highlights(&mut self) {
+        for window in self.windows.iter() {
+            if let Some(buffer) = self.buffers.get_mut(window.buffer_id) {
+                buffer.update_highlights();
+            }
+        }
+    }
 }
 
 #[cfg(test)]

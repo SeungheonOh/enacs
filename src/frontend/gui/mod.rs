@@ -4,11 +4,13 @@ use glyphon::{
     Attrs, Buffer as GlyphonBuffer, Cache, Color as GlyphonColor, Family, FontSystem, Metrics,
     Resolution, Shaping, SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport,
 };
+
+use crate::syntax::{Highlight, Theme as SyntaxTheme};
 use wgpu::{
     include_wgsl, util::DeviceExt, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
-    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
-    BufferUsages, CommandEncoderDescriptor, CompositeAlphaMode, DeviceDescriptor, Features,
-    FragmentState, Instance, InstanceDescriptor, Limits, LoadOp, MultisampleState, Operations,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType, BufferUsages,
+    CommandEncoderDescriptor, CompositeAlphaMode, DeviceDescriptor, Features, FragmentState,
+    Instance, InstanceDescriptor, Limits, LoadOp, MultisampleState, Operations,
     PipelineLayoutDescriptor, PresentMode, PrimitiveState, RenderPassColorAttachment,
     RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
     ShaderStages, StoreOp, Surface, SurfaceConfiguration, TextureFormat, TextureUsages,
@@ -90,8 +92,26 @@ fn is_shifted_symbol(ch: char) -> bool {
     // Characters that require Shift on a US keyboard layout
     matches!(
         ch,
-        '!' | '@' | '#' | '$' | '%' | '^' | '&' | '*' | '(' | ')' |
-        '_' | '+' | '{' | '}' | '|' | ':' | '"' | '<' | '>' | '?' | '~'
+        '!' | '@'
+            | '#'
+            | '$'
+            | '%'
+            | '^'
+            | '&'
+            | '*'
+            | '('
+            | ')'
+            | '_'
+            | '+'
+            | '{'
+            | '}'
+            | '|'
+            | ':'
+            | '"'
+            | '<'
+            | '>'
+            | '?'
+            | '~'
     )
 }
 
@@ -108,6 +128,58 @@ fn char_col_to_visual_col(line: &str, char_col: usize) -> usize {
         }
     }
     visual_col
+}
+
+fn find_highlight_at_byte(highlights: &[Highlight], byte_offset: usize) -> Option<&Highlight> {
+    highlights
+        .iter()
+        .find(|h| byte_offset >= h.byte_range.start && byte_offset < h.byte_range.end)
+}
+
+fn build_highlighted_spans(
+    text: &str,
+    highlights: &[Highlight],
+    line_start_byte: usize,
+    syntax_theme: &SyntaxTheme,
+    default_color: GlyphonColor,
+    spans: &mut Vec<(String, GlyphonColor)>,
+) {
+    if text.is_empty() {
+        return;
+    }
+
+    let mut current_span = String::new();
+    let mut current_color = default_color;
+    let mut byte_offset = line_start_byte;
+    let mut visual_col = 0;
+
+    for ch in text.chars() {
+        let color = find_highlight_at_byte(highlights, byte_offset)
+            .map(|h| syntax_theme.color_for(h.style).to_glyphon())
+            .unwrap_or(default_color);
+
+        if color != current_color && !current_span.is_empty() {
+            spans.push((std::mem::take(&mut current_span), current_color));
+        }
+        current_color = color;
+
+        if ch == '\t' {
+            let spaces = TAB_WIDTH - (visual_col % TAB_WIDTH);
+            for _ in 0..spaces {
+                current_span.push(' ');
+            }
+            visual_col += spaces;
+        } else {
+            current_span.push(ch);
+            visual_col += 1;
+        }
+
+        byte_offset += ch.len_utf8();
+    }
+
+    if !current_span.is_empty() {
+        spans.push((current_span, current_color));
+    }
 }
 
 impl Default for Theme {
@@ -265,8 +337,8 @@ impl GuiApp {
             &DeviceDescriptor {
                 label: None,
                 required_features: Features::empty(),
-                required_limits: Limits::downlevel_webgl2_defaults()
-                    .using_resolution(adapter.limits()),
+                required_limits:
+                    Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
                 memory_hints: Default::default(),
             },
             None,
@@ -289,20 +361,19 @@ impl GuiApp {
 
         let rect_shader = device.create_shader_module(include_wgsl!("rect.wgsl"));
 
-        let rect_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("Rect Bind Group Layout"),
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let rect_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Rect Bind Group Layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX | ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
 
         let rect_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("Rect Pipeline Layout"),
@@ -408,9 +479,10 @@ impl GuiApp {
 
         self.cols = (size.width as f32 / self.cell_width) as u16;
         self.rows = (size.height as f32 / self.cell_height) as u16;
-        
+
         // Content area is rows - 2 (modeline at row-2, minibuffer at row-1)
-        self.state.set_dimensions(self.cols, self.rows.saturating_sub(2));
+        self.state
+            .set_dimensions(self.cols, self.rows.saturating_sub(2));
     }
 
     fn create_rect_bind_group(gpu: &GpuState, uniforms: RectUniforms) -> BindGroup {
@@ -433,6 +505,8 @@ impl GuiApp {
     }
 
     fn render(&mut self) {
+        self.state.update_visible_highlights();
+
         let gpu = match &self.gpu {
             Some(g) => g,
             None => return,
@@ -451,7 +525,7 @@ impl GuiApp {
         let gpu_height = gpu.config.height;
 
         let theme = self.theme;
-        
+
         // Grid layout (like terminal):
         // - rows 0 to (rows-3): content area
         // - row (rows-2): modeline
@@ -461,10 +535,12 @@ impl GuiApp {
         let minibuffer_row = self.rows.saturating_sub(1);
 
         // Collect render data before borrowing text mutably
-        let mut content_text = String::new();
+        let mut content_spans: Vec<(String, GlyphonColor)> = Vec::new();
         let mut primary_cursor_pos: Option<(u16, u16)> = None;
         let mut secondary_cursor_positions: Vec<(u16, u16)> = Vec::new();
         let mut selection_rects: Vec<(u16, u16, u16)> = Vec::new(); // (col, row, width)
+
+        let syntax_theme = SyntaxTheme::modus_operandi();
 
         for window in self.state.windows.iter() {
             let buffer = match self.state.buffers.get(window.buffer_id) {
@@ -474,19 +550,33 @@ impl GuiApp {
 
             use crate::core::rope_ext::RopeExt;
 
-            // Build content text line by line
+            // Build content spans line by line with syntax highlighting
             for row in 0..content_rows {
                 let line_idx = window.scroll_line + row;
                 if line_idx < buffer.text.len_lines() {
                     let line = buffer.text.line(line_idx);
                     let line_str: String = line.chars().take(self.cols as usize).collect();
                     let trimmed = line_str.trim_end_matches('\n');
-                    // Expand tabs to spaces
                     let expanded = expand_tabs(trimmed, TAB_WIDTH);
-                    content_text.push_str(&expanded);
-                    content_text.push('\n');
+
+                    let highlights = buffer.highlights_for_line(line_idx);
+                    let line_start_byte = buffer.text.line_to_byte(line_idx);
+
+                    if highlights.is_empty() {
+                        content_spans.push((expanded, theme.foreground));
+                    } else {
+                        build_highlighted_spans(
+                            trimmed,
+                            &highlights,
+                            line_start_byte,
+                            &syntax_theme,
+                            theme.foreground,
+                            &mut content_spans,
+                        );
+                    }
+                    content_spans.push(("\n".to_string(), theme.foreground));
                 } else {
-                    content_text.push_str("~\n");
+                    content_spans.push(("~\n".to_string(), GlyphonColor::rgb(128, 128, 128)));
                 }
             }
 
@@ -505,7 +595,7 @@ impl GuiApp {
                     let line_text: String = buffer.text.line(cursor_line).chars().collect();
                     let visual_col = char_col_to_visual_col(&line_text, cursor_char_col) as u16;
                     let grid_pos = (visual_col, visual_row);
-                    
+
                     if i == 0 {
                         primary_cursor_pos = Some(grid_pos);
                     } else {
@@ -542,8 +632,10 @@ impl GuiApp {
 
                         if sel_end_char_col > sel_start_char_col {
                             // Convert char columns to visual columns
-                            let visual_start = char_col_to_visual_col(&line_text, sel_start_char_col) as u16;
-                            let visual_end = char_col_to_visual_col(&line_text, sel_end_char_col) as u16;
+                            let visual_start =
+                                char_col_to_visual_col(&line_text, sel_start_char_col) as u16;
+                            let visual_end =
+                                char_col_to_visual_col(&line_text, sel_end_char_col) as u16;
                             let width = visual_end.saturating_sub(visual_start);
                             if width > 0 {
                                 selection_rects.push((visual_start, visual_row, width));
@@ -557,7 +649,7 @@ impl GuiApp {
         // Build modeline text
         let modeline_text = self.build_modeline_text();
 
-        // Build minibuffer text  
+        // Build minibuffer text
         let minibuffer_text = if self.state.minibuffer.is_active() {
             self.state.minibuffer.display()
         } else if let Some(ref msg) = self.state.message {
@@ -649,16 +741,26 @@ impl GuiApp {
         let metrics = Metrics::new(FONT_SIZE, CELL_HEIGHT);
         let mut text_buffers: Vec<(GlyphonBuffer, (f32, f32))> = Vec::new();
 
-        // Content buffer at (0, 0)
+        // Content buffer at (0, 0) with syntax highlighting
         let mut content_buffer = GlyphonBuffer::new(&mut text.font_system, metrics);
         content_buffer.set_size(
             &mut text.font_system,
             Some(pixel_width),
             Some(content_rows as f32 * self.cell_height),
         );
-        content_buffer.set_text(
+
+        let rich_spans: Vec<(&str, Attrs)> = content_spans
+            .iter()
+            .map(|(text, color)| {
+                (
+                    text.as_str(),
+                    Attrs::new().family(Family::Name(FONT_FAMILY)).color(*color),
+                )
+            })
+            .collect();
+        content_buffer.set_rich_text(
             &mut text.font_system,
-            &content_text,
+            rich_spans,
             Attrs::new().family(Family::Name(FONT_FAMILY)),
             Shaping::Advanced,
         );
@@ -674,7 +776,9 @@ impl GuiApp {
         modeline_buffer.set_text(
             &mut text.font_system,
             &modeline_text,
-            Attrs::new().family(Family::Name(FONT_FAMILY)).color(theme.modeline_fg),
+            Attrs::new()
+                .family(Family::Name(FONT_FAMILY))
+                .color(theme.modeline_fg),
             Shaping::Advanced,
         );
         text_buffers.push((modeline_buffer, (0.0, modeline_y)));
@@ -749,7 +853,7 @@ impl GuiApp {
 
             // Draw rectangles first (behind text)
             pass.set_pipeline(&gpu.rect_pipeline);
-            
+
             // Modeline background
             pass.set_bind_group(0, &modeline_bg_bind_group, &[]);
             pass.draw(0..6, 0..1);
@@ -823,7 +927,7 @@ impl GuiApp {
         let right = format!(" L{}:C{} ", line, col);
 
         let padding = (self.cols as usize).saturating_sub(left.len() + right.len());
-        let dashes: String = std::iter::repeat('-').take(padding).collect();
+        let dashes = "-".repeat(padding);
 
         format!("{}{}{}", left, dashes, right)
     }
@@ -894,13 +998,13 @@ impl GuiApp {
             },
             Key::Character(c) => {
                 let ch = c.chars().next()?;
-                
+
                 // Normalize modifiers to match terminal behavior:
                 // 1. For uppercase letters with Ctrl/Meta: convert to lowercase, keep SHIFT
                 // 2. For uppercase letters without Ctrl/Meta: strip SHIFT (used to produce uppercase)
                 // 3. For shifted symbols (like <, >, !, @, etc.): strip SHIFT
                 //    because shift was used to produce the character, not as a modifier
-                
+
                 if ch.is_ascii_uppercase() {
                     if modifiers.contains(Modifiers::CTRL) || modifiers.contains(Modifiers::META) {
                         // Uppercase letter with Ctrl/Meta -> lowercase + SHIFT
@@ -939,7 +1043,8 @@ impl ApplicationHandler for GuiApp {
         let size = window.inner_size();
         self.cols = (size.width as f32 / self.cell_width) as u16;
         self.rows = (size.height as f32 / self.cell_height) as u16;
-        self.state.set_dimensions(self.cols, self.rows.saturating_sub(2));
+        self.state
+            .set_dimensions(self.cols, self.rows.saturating_sub(2));
 
         self.window = Some(window);
     }

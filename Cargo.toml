@@ -31,10 +31,25 @@ anyhow = "1.0"
 bitflags = "2.4"
 unicode-segmentation = "1.10"
 unicode-width = "0.1"
+regex = "1.10"
+streaming-iterator = "0.1"
 
 # Logging (optional, for debugging)
 log = "0.4"
 env_logger = "0.10"
+
+# Syntax highlighting - Tree-sitter
+tree-sitter = "0.24"
+tree-sitter-rust = "0.24"
+tree-sitter-python = "0.23"
+tree-sitter-javascript = "0.23"
+tree-sitter-typescript = "0.23"
+tree-sitter-c = "0.23"
+tree-sitter-cpp = "0.23"
+tree-sitter-go = "0.23"
+tree-sitter-toml-ng = "0.7"
+tree-sitter-json = "0.24"
+tree-sitter-md = "0.3"
 
 [dev-dependencies]
 criterion = "0.5"
