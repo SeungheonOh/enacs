@@ -1,7 +1,7 @@
 use std::io::Stdout;
 
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
+    cursor::MoveTo,
     queue,
     style::{
         Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
@@ -17,34 +17,12 @@ pub fn render(
     width: u16,
     height: u16,
 ) -> std::io::Result<()> {
-    queue!(stdout, Hide)?;
-
     for window in state.windows.iter() {
         render_window(state, stdout, window)?;
     }
 
     render_modeline(state, stdout, width, height)?;
     render_minibuffer(state, stdout, width, height)?;
-
-    if state.minibuffer.is_active() {
-        let cursor_x = state.minibuffer.cursor_screen_pos() as u16;
-        queue!(stdout, MoveTo(cursor_x.min(width - 1), height - 1))?;
-    } else if let Some(window) = state.windows.current() {
-        if let Some(buffer) = state.buffers.get(window.buffer_id) {
-            let cursor_pos = window.cursors.primary.position;
-            let pos = buffer.text.char_to_position(cursor_pos);
-
-            let screen_line = pos.line.saturating_sub(window.scroll_line);
-            let screen_col = pos.column.saturating_sub(window.scroll_column);
-
-            let x = (window.x as usize + screen_col).min((window.x + window.width - 1) as usize);
-            let y = (window.y as usize + screen_line).min((window.y + window.height - 1) as usize);
-
-            queue!(stdout, MoveTo(x as u16, y as u16))?;
-        }
-    }
-
-    queue!(stdout, Show)?;
 
     Ok(())
 }
@@ -94,13 +72,19 @@ fn render_window(
                     .any(|c| c.position.0 == char_offset);
                 let is_primary_cursor = window.cursors.primary.position.0 == char_offset;
 
-                if in_any_region {
+                if is_primary_cursor {
+                    queue!(
+                        stdout,
+                        SetBackgroundColor(Color::Black),
+                        SetForegroundColor(Color::White)
+                    )?;
+                } else if in_any_region {
                     queue!(
                         stdout,
                         SetBackgroundColor(Color::Blue),
                         SetForegroundColor(Color::White)
                     )?;
-                } else if is_cursor_pos && !is_primary_cursor {
+                } else if is_cursor_pos {
                     queue!(
                         stdout,
                         SetBackgroundColor(Color::DarkGrey),
@@ -116,18 +100,50 @@ fn render_window(
                     queue!(stdout, Print(ch))?;
                 }
 
-                if in_any_region || (is_cursor_pos && !is_primary_cursor) {
+                if is_primary_cursor || in_any_region || is_cursor_pos {
                     queue!(stdout, ResetColor)?;
                 }
             }
 
+            let line_char_count = line_str.chars().count();
             let printed_len = line_str
                 .chars()
                 .map(|c| if c == '\t' { 4 } else { 1 })
                 .sum::<usize>();
 
+            let line_ends_with_newline = line_str.ends_with('\n');
+            let cursor_at_eol = line_start_char + line_char_count;
+            let check_eol_cursor = !line_ends_with_newline;
+            let is_primary_at_eol =
+                check_eol_cursor && window.cursors.primary.position.0 == cursor_at_eol;
+            let is_any_cursor_at_eol = check_eol_cursor
+                && window
+                    .cursors
+                    .all_cursors()
+                    .any(|c| c.position.0 == cursor_at_eol);
+
+            let mut first_pad = true;
             for _ in printed_len..window.width as usize {
-                queue!(stdout, Print(' '))?;
+                if first_pad && is_primary_at_eol {
+                    queue!(
+                        stdout,
+                        SetBackgroundColor(Color::Black),
+                        SetForegroundColor(Color::White),
+                        Print(' '),
+                        ResetColor
+                    )?;
+                } else if first_pad && is_any_cursor_at_eol {
+                    queue!(
+                        stdout,
+                        SetBackgroundColor(Color::DarkGrey),
+                        SetForegroundColor(Color::White),
+                        Print(' '),
+                        ResetColor
+                    )?;
+                } else {
+                    queue!(stdout, Print(' '))?;
+                }
+                first_pad = false;
             }
         } else {
             queue!(
@@ -238,11 +254,40 @@ fn render_minibuffer(
         String::new()
     };
 
-    let display: String = content.chars().take(width as usize).collect();
-    queue!(stdout, Print(&display))?;
+    let cursor_pos = if state.minibuffer.is_active() {
+        Some(state.minibuffer.cursor_screen_pos())
+    } else {
+        None
+    };
 
-    for _ in display.len()..width as usize {
-        queue!(stdout, Print(' '))?;
+    for (i, ch) in content.chars().take(width as usize).enumerate() {
+        if cursor_pos == Some(i) {
+            queue!(
+                stdout,
+                SetBackgroundColor(Color::Black),
+                SetForegroundColor(Color::White),
+                Print(ch),
+                ResetColor
+            )?;
+        } else {
+            queue!(stdout, Print(ch))?;
+        }
+    }
+
+    let content_len = content.chars().take(width as usize).count();
+
+    for i in content_len..width as usize {
+        if cursor_pos == Some(i) {
+            queue!(
+                stdout,
+                SetBackgroundColor(Color::Black),
+                SetForegroundColor(Color::White),
+                Print(' '),
+                ResetColor
+            )?;
+        } else {
+            queue!(stdout, Print(' '))?;
+        }
     }
 
     Ok(())

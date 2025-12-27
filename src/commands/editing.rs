@@ -1,8 +1,39 @@
+use crate::core::cursor::CursorId;
 use crate::core::mark::Mark;
 use crate::core::position::CharOffset;
 use crate::state::EditorState;
 
 use super::registry::{Command, CommandContext, CommandError, CommandResult};
+
+fn delete_region_if_active(state: &mut EditorState, buffer_id: crate::core::buffer::BufferId) -> bool {
+    let regions: Vec<(CursorId, CharOffset, CharOffset)> = {
+        let window = match state.windows.current() {
+            Some(w) => w,
+            None => return false,
+        };
+
+        window
+            .cursors
+            .all_cursors()
+            .filter_map(|cursor| cursor.region().map(|(start, end)| (cursor.id, start, end)))
+            .collect()
+    };
+
+    if regions.is_empty() {
+        return false;
+    }
+
+    let cursors = &mut state.windows.current_mut().unwrap().cursors;
+    if let Some(buffer) = state.buffers.get_mut(buffer_id) {
+        buffer.delete_regions(cursors, regions);
+    }
+
+    if let Some(window) = state.windows.current_mut() {
+        window.cursors.deactivate_all_marks();
+    }
+
+    true
+}
 
 pub fn self_insert(state: &mut EditorState, c: char) -> CommandResult {
     let buffer_id = match state.windows.current() {
@@ -42,6 +73,10 @@ pub fn delete_char(state: &mut EditorState, ctx: &CommandContext) -> CommandResu
         return Err(CommandError::ReadOnly);
     }
 
+    if delete_region_if_active(state, buffer_id) {
+        return Ok(());
+    }
+
     let cursors = &mut state.windows.current_mut().unwrap().cursors;
     if let Some(buffer) = state.buffers.get_mut(buffer_id) {
         for _ in 0..count {
@@ -65,6 +100,10 @@ pub fn delete_backward_char(state: &mut EditorState, ctx: &CommandContext) -> Co
         .unwrap_or(false);
     if read_only {
         return Err(CommandError::ReadOnly);
+    }
+
+    if delete_region_if_active(state, buffer_id) {
+        return Ok(());
     }
 
     let cursors = &mut state.windows.current_mut().unwrap().cursors;

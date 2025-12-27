@@ -224,13 +224,14 @@ impl Buffer {
         self.undo_tree.begin_batch();
 
         for pos in positions {
-            let char_idx = pos.0;
-            if char_idx < self.text.len_chars() {
+            let len = self.text.len_chars();
+            let char_idx = pos.0.min(len.saturating_sub(1));
+            if char_idx < len {
                 let c = self.text.char(char_idx);
                 deleted = Some(c);
-                self.undo_tree.record_delete(pos, c.to_string());
+                self.undo_tree.record_delete(CharOffset(char_idx), c.to_string());
                 self.text.remove(char_idx..char_idx + 1);
-                cursors.adjust_positions_after_delete(pos, CharOffset(pos.0 + 1));
+                cursors.adjust_positions_after_delete(CharOffset(char_idx), CharOffset(char_idx + 1));
             }
         }
 
@@ -250,18 +251,21 @@ impl Buffer {
 
         let positions = cursors.positions_descending();
         let mut deleted = None;
+        let len = self.text.len_chars();
 
         self.undo_tree.begin_batch();
 
         for pos in positions {
             if pos.0 > 0 {
-                let char_idx = pos.0 - 1;
-                let c = self.text.char(char_idx);
-                deleted = Some(c);
-                self.undo_tree
-                    .record_delete(CharOffset(char_idx), c.to_string());
-                self.text.remove(char_idx..char_idx + 1);
-                cursors.adjust_positions_after_delete(CharOffset(char_idx), pos);
+                let char_idx = (pos.0 - 1).min(len.saturating_sub(1));
+                if char_idx < len {
+                    let c = self.text.char(char_idx);
+                    deleted = Some(c);
+                    self.undo_tree
+                        .record_delete(CharOffset(char_idx), c.to_string());
+                    self.text.remove(char_idx..char_idx + 1);
+                    cursors.adjust_positions_after_delete(CharOffset(char_idx), CharOffset(char_idx + 1));
+                }
             }
         }
 

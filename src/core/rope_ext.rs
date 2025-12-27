@@ -16,7 +16,11 @@ pub trait RopeExt {
 
 impl RopeExt for Rope {
     fn char_to_position(&self, char_idx: CharOffset) -> Position {
-        let char_idx = char_idx.0.min(self.len_chars());
+        let len = self.len_chars();
+        if len == 0 {
+            return Position::new(0, 0);
+        }
+        let char_idx = char_idx.0.min(len);
         let line = self.char_to_line(char_idx);
         let line_start = self.line_to_char(line);
         let column = char_idx - line_start;
@@ -96,7 +100,12 @@ pub fn find_word_boundary_forward(rope: &Rope, start: CharOffset) -> CharOffset 
 }
 
 pub fn find_word_boundary_backward(rope: &Rope, start: CharOffset) -> CharOffset {
-    let mut pos = start.0;
+    let len = rope.len_chars();
+    if len == 0 {
+        return CharOffset(0);
+    }
+
+    let mut pos = start.0.min(len);
 
     if pos == 0 {
         return CharOffset(0);
@@ -104,16 +113,16 @@ pub fn find_word_boundary_backward(rope: &Rope, start: CharOffset) -> CharOffset
 
     pos -= 1;
 
-    while pos > 0 && !Rope::is_word_char(rope.char(pos)) {
+    while pos > 0 && pos < len && !Rope::is_word_char(rope.char(pos)) {
         pos -= 1;
     }
 
-    while pos > 0 && Rope::is_word_char(rope.char(pos - 1)) {
+    while pos > 0 && pos < len && Rope::is_word_char(rope.char(pos - 1)) {
         pos -= 1;
     }
 
-    if pos > 0 && !Rope::is_word_char(rope.char(pos)) {
-        CharOffset(start.0.saturating_sub(1))
+    if pos > 0 && pos < len && !Rope::is_word_char(rope.char(pos)) {
+        CharOffset(start.0.min(len).saturating_sub(1))
     } else {
         CharOffset(pos)
     }

@@ -61,7 +61,12 @@ impl Frontend for TerminalFrontend {
     }
 
     fn shutdown(&mut self) -> Result<(), FrontendError> {
-        execute!(self.stdout, cursor::Show, terminal::LeaveAlternateScreen)?;
+        execute!(
+            self.stdout,
+            cursor::Show,
+            cursor::MoveTo(0, 0),
+            terminal::LeaveAlternateScreen
+        )?;
         terminal::disable_raw_mode()?;
         Ok(())
     }
@@ -90,6 +95,8 @@ impl Frontend for TerminalFrontend {
                     }
                     FrontendEvent::Mouse(_) => {}
                     FrontendEvent::Focus(_) => {}
+                    FrontendEvent::FileDrop(_) => {}
+                    FrontendEvent::ScaleChange(_) => {}
                 }
             }
         }

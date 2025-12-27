@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::keybinding::KeyEvent;
@@ -10,6 +11,20 @@ pub enum FrontendError {
 
     #[error("Terminal error: {0}")]
     Terminal(String),
+
+    #[error("GUI error: {0}")]
+    Gui(String),
+
+    #[error("Rendering error: {0}")]
+    Render(String),
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FrontendCapabilities {
+    pub images: bool,
+    pub true_color: bool,
+    pub clipboard: bool,
+    pub variable_width_fonts: bool,
 }
 
 pub trait Frontend {
@@ -24,6 +39,20 @@ pub trait Frontend {
     fn render(&mut self, state: &EditorState) -> Result<(), FrontendError>;
 
     fn bell(&mut self);
+
+    fn capabilities(&self) -> FrontendCapabilities {
+        FrontendCapabilities::default()
+    }
+
+    fn pixel_size(&self) -> Option<(u32, u32)> {
+        None
+    }
+
+    fn scale_factor(&self) -> f32 {
+        1.0
+    }
+
+    fn set_title(&mut self, _title: &str) {}
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +61,8 @@ pub enum FrontendEvent {
     Resize(u16, u16),
     Mouse(MouseEvent),
     Focus(bool),
+    FileDrop(Vec<PathBuf>),
+    ScaleChange(f32),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -48,4 +79,5 @@ pub enum MouseEventKind {
     Drag,
     ScrollUp,
     ScrollDown,
+    Move,
 }
