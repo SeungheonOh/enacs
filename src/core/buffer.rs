@@ -218,6 +218,8 @@ impl Buffer {
             return None;
         }
 
+        self.undo_tree.set_cursors_before(cursors.clone());
+
         let positions = cursors.positions_descending();
         let mut deleted = None;
 
@@ -248,6 +250,8 @@ impl Buffer {
         if self.read_only {
             return None;
         }
+
+        self.undo_tree.set_cursors_before(cursors.clone());
 
         let positions = cursors.positions_descending();
         let mut deleted = None;
@@ -295,6 +299,7 @@ impl Buffer {
             return String::new();
         }
 
+        self.undo_tree.set_cursors_before(cursors.clone());
         self.undo_tree.break_coalesce();
 
         let deleted: String = self.text.slice(start_idx..end_idx).to_string();
@@ -326,6 +331,7 @@ impl Buffer {
 
         ops.sort_by(|a, b| b.1.cmp(&a.1));
 
+        self.undo_tree.set_cursors_before(cursors.clone());
         self.undo_tree.break_coalesce();
         self.undo_tree.begin_batch();
 
@@ -606,5 +612,28 @@ mod tests {
         buffer.undo(&mut cursors);
 
         assert_eq!(buffer.text.to_string(), "X Y");
+    }
+
+    #[test]
+    fn test_multi_cursor_undo_deletion() {
+        let mut buffer = Buffer::from_string("test", "abc def");
+        let mut cursors = CursorSet::new();
+        cursors.primary.position = CharOffset(3);
+        cursors.add_cursor(CharOffset(7));
+
+        assert_eq!(cursors.primary.position, CharOffset(3));
+        assert_eq!(cursors.secondary.len(), 1);
+        assert_eq!(cursors.secondary[0].position, CharOffset(7));
+
+        buffer.delete_char_backward(&mut cursors);
+        assert_eq!(buffer.text.to_string(), "ab de");
+
+        buffer.add_undo_boundary();
+        buffer.undo(&mut cursors);
+
+        assert_eq!(buffer.text.to_string(), "abc def");
+        assert_eq!(cursors.primary.position, CharOffset(3));
+        assert_eq!(cursors.secondary.len(), 1);
+        assert_eq!(cursors.secondary[0].position, CharOffset(7));
     }
 }
